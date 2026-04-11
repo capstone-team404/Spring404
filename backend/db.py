@@ -3,7 +3,7 @@ import pymysql
 conn = pymysql.connect(
     host="localhost",
     user="root",
-    password="0327",  # ⭐ 너 비번 넣기
+    password="0327",  
     database="safety_db"
 )
 
