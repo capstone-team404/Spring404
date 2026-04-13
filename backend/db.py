@@ -9,8 +9,13 @@ conn = pymysql.connect(
 
 def save_review(review, score):
     with conn.cursor() as cursor:
-        sql = "INSERT INTO reviews (content, lat, lng, score) VALUES (%s, %s, %s, %s)"
-        cursor.execute(sql, (review.text, review.lat, review.lng, score))
+        sql = "INSERT INTO review (content, lat, lng, score) VALUES (%s, %s, %s, %s)"
+        cursor.execute(sql, (
+            review.content,
+            review.lat,
+            review.lng,
+            score
+        ))
         conn.commit()
 
 def get_reviews():
