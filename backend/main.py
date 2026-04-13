@@ -7,15 +7,28 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 개발용
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.get("/")
 def root():
     return {"message": "Server running"}
 
 @app.post("/review")
 def create_review(review: ReviewCreate):
-    score = review.user_score   # ⭐ 변경
+    score = review.rating  # 지금은 그냥 rating 그대로 사용
+
     save_review(review, score)
-    return {"message": "saved", "score": score}
+
+    return {
+        "message": "saved",
+        "score": score
+    }
 
 @app.get("/reviews")
 def read_reviews():

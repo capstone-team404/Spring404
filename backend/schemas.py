@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
 class ReviewCreate(BaseModel):
-    content: str
+    text: str
+    rating: int
     lat: float
     lng: float
-    user_score: int   # ⭐ 추가
