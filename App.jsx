@@ -22,18 +22,14 @@ function App() {
     libraries: ['places'],
   });
 
-  // 🔥 마커 하나만 관리
   const [marker, setMarker] = useState(null);
-
-  // 🔹 리뷰 상태
   const [reviewText, setReviewText] = useState('');
   const [reviewRating, setReviewRating] = useState(0);
-
-  // 🔹 리뷰 리스트 (현재 마커용)
   const [reviews, setReviews] = useState([]);
 
   if (!isLoaded) return <div>Loading...</div>;
 
+  // 🔥 장소 클릭
   const handleClick = (e) => {
     if (e.placeId) {
       e.stop();
@@ -47,32 +43,78 @@ function App() {
           placeId: e.placeId,
           fields: ['name'],
         },
-        (place, status) => {
+        async (place, status) => {
           if (status === 'OK') {
-            // 🔥 이전 마커 날리고 새 마커만 생성
+            const newPosition = {
+              lat: e.latLng.lat(),
+              lng: e.latLng.lng(),
+            };
+
             setMarker({
               id: Date.now(),
               name: place.name,
-              position: {
-                lat: e.latLng.lat(),
-                lng: e.latLng.lng(),
-              },
+              position: newPosition,
             });
 
-            // 🔥 새 장소니까 리뷰 초기화
-            setReviews([]);
             setReviewText('');
             setReviewRating(0);
+
+            // 🔥 서버에서 리뷰 불러오기
+            try {
+              const res = await fetch('http://127.0.0.1:8000/reviews');
+              const data = await res.json();
+
+              // 👉 현재 위치랑 가까운 리뷰만 필터
+              const filtered = data.filter(
+                (r) =>
+                  Math.abs(r.lat - newPosition.lat) < 0.001 &&
+                  Math.abs(r.lng - newPosition.lng) < 0.001,
+              );
+
+              setReviews(filtered);
+            } catch (err) {
+              console.error(err);
+            }
           }
         },
       );
     }
   };
 
-  const saveReview = () => {
-    setReviews((prev) => [...prev, { text: reviewText, rating: reviewRating }]);
-    setReviewText('');
-    setReviewRating(0);
+  // 🔥 리뷰 저장 (POST)
+  const saveReview = async () => {
+    if (!marker) return;
+
+    try {
+      await fetch('http://127.0.0.1:8000/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: reviewText,
+          lat: marker.position.lat,
+          lng: marker.position.lng,
+          user_score: reviewRating,
+        }),
+      });
+
+      // 🔥 저장 후 다시 불러오기
+      const res = await fetch('http://127.0.0.1:8000/reviews');
+      const data = await res.json();
+
+      const filtered = data.filter(
+        (r) =>
+          Math.abs(r.lat - marker.position.lat) < 0.001 &&
+          Math.abs(r.lng - marker.position.lng) < 0.001,
+      );
+
+      setReviews(filtered);
+      setReviewText('');
+      setReviewRating(0);
+
+      alert('저장됨!');
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   return (
@@ -97,7 +139,6 @@ function App() {
             }}
           >
             <div style={{ width: '250px' }}>
-              {/* 📍 장소 이름 */}
               <h3>📍 {marker.name}</h3>
 
               <hr />
@@ -106,10 +147,8 @@ function App() {
               {reviews.length > 0 &&
                 reviews.map((r, idx) => (
                   <div key={idx} style={{ marginBottom: '5px' }}>
-                    <span>
-                      {'★'.repeat(r.rating) + '☆'.repeat(5 - r.rating)}
-                    </span>
-                    <p style={{ margin: '2px 0' }}>{r.text}</p>
+                    <span>{'★'.repeat(r.score) + '☆'.repeat(5 - r.score)}</span>
+                    <p style={{ margin: '2px 0' }}>{r.content}</p>
                   </div>
                 ))}
 
