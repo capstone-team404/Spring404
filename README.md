@@ -79,51 +79,7 @@
 안전 정보를 기반으로 한 자율적 이동권 강화
 
 
-
-## 5️. System Architecture (시스템 구조)
-
-```
-User
- ↓
-Frontend (React + Google Maps)
- ↓
-Backend (Node.js / Express)
- ↓
-Database (MySQL)
- ↓
-AI Engine (OpenAI API)
- ↓
-Response
-↓
-User
-```
-
-
-
-## 6️. Tech Stack (기술 스택)
-
-### Frontend
-
-* React
-* JavaScript / HTML / CSS
-* Google Maps Platform
-
-### Backend
-
-* Node.js
-* Express.js
-
-### Database
-
-* MySQL
-
-### AI
-
-* OpenAI API
-
-
-
-## 7️.  Core Algorithm / Logic (핵심 로직)
+## 5.  Core Algorithm / Logic (핵심 로직)
 
 🗺️ 안전 지도 생성 로직 (Safety Map Generation)
 
@@ -149,6 +105,47 @@ safety_score = (user_score * α) + (public_data_score * β)<br>
 4️⃣ 안전 지도 생성<br>
 Google Maps 기반 지도 렌더링<br>
 지역별 safety_score를 평점으로 변환<br>
+
+## 6. System Architecture (시스템 구조)
+
+```
+User
+ ↓
+Frontend (React + Google Maps)
+ ↓
+Backend (Node.js / Express)
+ ↓
+Database (MySQL)
+ ↓
+AI Engine (OpenAI API)
+ ↓
+Response
+↓
+User
+```
+
+
+
+## 7. Tech Stack (기술 스택)
+
+### Frontend
+
+* React
+* JavaScript / HTML / CSS
+* Google Maps Platform
+
+### Backend
+
+* Node.js
+* Express.js
+
+### Database
+
+* MySQL
+
+### AI
+
+* OpenAI API
 
 
 
