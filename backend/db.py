@@ -10,7 +10,7 @@ conn = pymysql.connect(
 def save_review(review, ai_score):
     with conn.cursor() as cursor:
         sql = """
-        INSERT INTO review (content, lat, lng, score, ai_score)
+        INSERT INTO review (content, lat, lng, user_score, ai_score)
         VALUES (%s, %s, %s, %s, %s)
         """
         cursor.execute(sql, (
@@ -24,7 +24,7 @@ def save_review(review, ai_score):
 
 def get_reviews():
     with conn.cursor() as cursor:
-        sql = "SELECT content, lat, lng, score, ai_score FROM review"
+        sql = "SELECT content, lat, lng, user_score, ai_score FROM review"
         cursor.execute(sql)
         result = cursor.fetchall()
 
