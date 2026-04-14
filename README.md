@@ -164,13 +164,21 @@ Google Maps 기반 지도 렌더링<br>
 ```
 📦 Spring404 (main repository)
  ┣ 🌿 frontend
- ┃ ┗ React 기반 UI 및 Google Maps 구현
+ ┃ ┣ App.jsx (React 기반 UI 및 Google Maps 구현)
  ┣ 🌿 backend
- ┃ ┗ Node.js / Express API 서버
+ ┃ ┣ .gitignore
+ ┃ ┣ db.py
+ ┃ ┣ main.py
+ ┃ ┣ models.py
+ ┃ ┣ schemas.py
+ ┃ ┗ requirements.txt
  ┣ 🌿 ai
- ┃ ┗ OpenAI API 기반 추천 로직 및 분석 모듈
+ ┃ ┣ .gitignore
+ ┃ ┣ README.md
+ ┃ ┣ main.py
+ ┃ ┗ requirements.txt
  ┗ 🌿 main
-   ┗ 통합 및 배포 관리 브랜치
+   ┗ 통합 관리 및 배포 브랜치
 
 ```
 
