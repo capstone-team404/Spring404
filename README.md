@@ -12,7 +12,7 @@
 
 
 
-## 1️⃣ Project Overview (프로젝트 개요)
+## 1️. Project Overview (프로젝트 개요)
 
 여기지! (여성 기행 지켜 !)는 여성 1인 여행자의 불안감을 줄이고 안전한 여행을 지원하기 위해 설계된<br>
 **데이터 기반 안전 여행 지원 웹**입니다.
@@ -25,7 +25,7 @@
 
 
 
-## 2️⃣ Problem Definition (문제 정의)
+## 2️. Problem Definition (문제 정의)
 
 여성 1인 여행자는 다음과 같은 문제를 겪습니다:
 
@@ -36,7 +36,7 @@
 
 
 
-## 3️⃣ Solution (해결 방식)
+## 3️. Solution (해결 방식)
 
 본 프로젝트는 아래 3가지 핵심 기능으로 문제를 해결합니다:
 
@@ -57,7 +57,7 @@
 
 
 
-## 4️⃣ MVP (Minimum Viable Product)
+## 4️. MVP (Minimum Viable Product)
 
 본 프로젝트의 핵심 MVP는 **데이터 기반 안전 지도 (Safety Map)** 입니다.
 
@@ -80,7 +80,7 @@
 
 
 
-## 5️⃣ System Architecture (시스템 구조)
+## 5️. System Architecture (시스템 구조)
 
 ```
 User
@@ -100,7 +100,7 @@ User
 
 
 
-## 6️⃣ Tech Stack (기술 스택)
+## 6️. Tech Stack (기술 스택)
 
 ### Frontend
 
@@ -123,7 +123,7 @@ User
 
 
 
-## 7️⃣  Core Algorithm / Logic (핵심 로직)
+## 7️.  Core Algorithm / Logic (핵심 로직)
 
 🗺️ 안전 지도 생성 로직 (Safety Map Generation)
 
@@ -153,7 +153,7 @@ Google Maps 기반 지도 렌더링<br>
 
 
 
-## 8️⃣ Repository Structure (파일 구조)
+## 8️. Repository Structure (파일 구조)
 
 본 프로젝트는 **Spring404 레포지토리 기반 멀티 브랜치 구조**로 관리되며,
 프론트엔드 / 백엔드 / AI 모듈이 각각 독립 브랜치에서 개발 및 관리됩니다.
@@ -213,7 +213,7 @@ Google Maps 기반 지도 렌더링<br>
 
 
 
-## 9️⃣ Expected Impact (기대 효과)
+## 9️. Expected Impact (기대 효과)
 
 * 여성 1인 여행자의 심리적 안정성 증가
 * 데이터 기반 위험 회피 가능
