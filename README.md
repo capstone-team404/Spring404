@@ -166,7 +166,6 @@ User
  ┃ ┣ .gitignore
  ┃ ┣ db.py
  ┃ ┣ main.py
- ┃ ┣ models.py
  ┃ ┣ schemas.py
  ┃ ┗ requirements.txt
  ┣ 🌿 ai
