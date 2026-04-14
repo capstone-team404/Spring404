@@ -187,10 +187,10 @@ Google Maps 기반 지도 렌더링<br>
 
 #### 🌿 frontend 브랜치
 
-App.jsx
- * React 기반 사용자 UI
- * 지도 (Google Maps) 렌더링
- * 안전 지도 시각화 화면
+ - App.jsx
+  * React 기반 사용자 UI
+  * 지도 (Google Maps) 렌더링
+  * 안전 지도 시각화 화면
 
 #### 🌿 backend 브랜치
 
