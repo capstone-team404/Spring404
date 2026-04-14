@@ -182,7 +182,7 @@ Google Maps 기반 지도 렌더링<br>
 
 #### 🌿 backend 브랜치
 
-* Express API 서버
+* Fast API 서버
 * MySQL 데이터 처리
 * 사용자 리뷰 및 공공데이터 관리
 
