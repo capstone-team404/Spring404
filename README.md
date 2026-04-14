@@ -164,7 +164,7 @@ Google Maps 기반 지도 렌더링<br>
 ```
 📦 Spring404 (main repository)
  ┣ 🌿 frontend
- ┃ ┣ App.jsx (React 기반 UI 및 Google Maps 구현)
+ ┃ ┣ App.jsx
  ┣ 🌿 backend
  ┃ ┣ .gitignore
  ┃ ┣ db.py
@@ -186,9 +186,10 @@ Google Maps 기반 지도 렌더링<br>
 
 #### 🌿 frontend 브랜치
 
-* React 기반 사용자 UI
-* 지도 (Google Maps) 렌더링
-* 안전 지도 시각화 화면
+App.jsx
+ * React 기반 사용자 UI
+ * 지도 (Google Maps) 렌더링
+ * 안전 지도 시각화 화면
 
 #### 🌿 backend 브랜치
 
