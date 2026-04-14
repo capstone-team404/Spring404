@@ -19,10 +19,12 @@ app.add_middleware(
 
 
 def call_ai(text):
-    res = requests.post(AI_URL, json={"review": text})
-    data = res.json()
-
-    return data.get("danger_score") or data.get("score")
+    try:
+        res = requests.post(AI_URL, json={"review": text}, timeout=3)
+        data = res.json()
+        return data.get("danger_score") or 0
+    except:
+        return 0
 
 
 @app.post("/review")
@@ -43,18 +45,17 @@ def create_review(review: ReviewCreate):
     }
 }
 
-# 🔥 리뷰 조회
 @app.get("/reviews")
 def read_reviews():
     data = get_reviews()
 
-    # 🔥 프론트 형식 맞추기
     return [
         {
-            "text": r["content"],
+            "content": r["content"],
             "lat": r["lat"],
             "lng": r["lng"],
-            "rating": r["score"]
+            "user_score": r["user_score"],
+            "ai_score": r["ai_score"]
         }
         for r in data
     ]
