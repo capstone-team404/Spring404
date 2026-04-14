@@ -113,7 +113,7 @@ User
  ↓
 Frontend (React + Google Maps)
  ↓
-Backend (Node.js / Express)
+Backend (FastAPI)
  ↓
 Database (MySQL)
  ↓
@@ -136,8 +136,7 @@ User
 
 ### Backend
 
-* Node.js
-* Express.js
+* FastAPI
 
 ### Database
 
