@@ -28,14 +28,20 @@ def call_ai(text):
 @app.post("/review")
 def create_review(review: ReviewCreate):
 
-    score = call_ai(review.content)  # ⭐ text → content로 변경
+    ai_score = call_ai(review.content)
 
-    save_review(review, score)
+    save_review(review, ai_score)
 
     return {
-        "message": "saved",
-        "score": score
+    "message": "saved",
+    "data": {
+        "content": review.content,
+        "lat": review.lat,
+        "lng": review.lng,
+        "user_score": review.user_score,
+        "ai_score": ai_score
     }
+}
 
 # 🔥 리뷰 조회
 @app.get("/reviews")
