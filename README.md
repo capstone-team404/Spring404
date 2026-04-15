@@ -97,12 +97,6 @@
 3️⃣ 안전도 점수 계산<br>
 사용자 리뷰 기반 점수<br>
 공공 데이터 기반 위험도 점수<br>
-두 데이터를 가중합하여 최종 안전 점수 산출<br>
-
-예:
-
-safety_score = (user_score * α) + (public_data_score * β)<br>
-
 4️⃣ 안전 지도 생성<br>
 Google Maps 기반 지도 렌더링<br>
 지역별 safety_score를 평점으로 변환<br>
