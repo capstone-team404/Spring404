@@ -189,24 +189,24 @@ User
 
 #### 🌿 backend 브랜치
 
-- .gitignore
+`- .gitignore
   * 깃허브에 업로드하지 않을 파일 목록 관리
   * venv, 캐시 파일, 환경변수 등 제외 설정
 
-- db.py
+`- db.py
   * MySQL 데이터베이스 연결 및 관리
   * 리뷰 데이터 저장 및 조회 기능 구현
 
-- main.py
+`- main.py
   * FastAPI 기반 백엔드 서버 실행 파일
   * API 엔드포인트 정의 및 요청 처리
   * AI 서버와 통신하여 위험도 계산
 
-- schemas.py
+`- schemas.py
   * 요청/응답 데이터 구조 정의 (Pydantic)
   * 데이터 검증 및 타입 관리
 
-- requirements.txt
+`- requirements.txt
   * 프로젝트 실행에 필요한 라이브러리 목록
   * 동일한 개발 환경 재현을 위한 설정 파일
 
