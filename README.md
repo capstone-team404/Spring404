@@ -132,7 +132,7 @@ User
 
 * React
 * JavaScript / HTML / CSS
-* Google Maps Platform
+* Google Cloud Console
 
 ### Backend
 
