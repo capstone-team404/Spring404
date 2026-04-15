@@ -43,9 +43,10 @@
  🗺️ **1. 안전 데이터 기반 지도 시각화**
 
 <details>
-  <summary>Dist file list from the repo. (click to expand)</summary>
+  <summary>🗺️ **1. 안전 데이터 기반 지도 시각화** (click to expand)</summary>
 * 공공 데이터 및 사용자 리뷰 기반 안전 점수 DB 구축
 * Google Maps 기반 안전도 시각화
+</details>
 
  🧭 **2. AI 기반 안전 여행 경로 추천**
 
