@@ -12,14 +12,17 @@ const mapStyle = {
 };
 
 const center = {
-  lat: 48.856614, // 파리
+  lat: 48.856614,
   lng: 2.3522219,
 };
+
+const LIBRARIES = ['places'];
+const API_URL = 'http://10.240.119.182:8000';
 
 function App() {
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: 'AIzaSyB9lB1dUQypTZTLyw8cM5MgpS4jxbCoPUk',
-    libraries: ['places'],
+    libraries: LIBRARIES,
   });
 
   const [marker, setMarker] = useState(null);
@@ -29,7 +32,21 @@ function App() {
 
   if (!isLoaded) return <div>Loading...</div>;
 
-  // 🔥 장소 클릭
+  // ⭐ 사용자 평균
+  const getUserAverage = (arr) => {
+    if (arr.length === 0) return '0.00';
+    const sum = arr.reduce((acc, cur) => acc + cur.user_score, 0);
+    return (sum / arr.length).toFixed(2);
+  };
+
+  // ⚠️ AI 평균
+  const getAiAverage = (arr) => {
+    if (arr.length === 0) return '0.00';
+    const sum = arr.reduce((acc, cur) => acc + (cur.ai_score || 0), 0);
+    return (sum / arr.length).toFixed(2);
+  };
+
+  // 🔥 지도 클릭
   const handleClick = (e) => {
     if (e.placeId) {
       e.stop();
@@ -56,15 +73,12 @@ function App() {
               position: newPosition,
             });
 
-            setReviewText('');
-            setReviewRating(0);
-
-            // 🔥 서버에서 리뷰 불러오기
             try {
-              const res = await fetch('http://127.0.0.1:8000/reviews');
+              const res = await fetch(`${API_URL}/reviews`);
+              if (!res.ok) throw new Error('서버 오류');
+
               const data = await res.json();
 
-              // 👉 현재 위치랑 가까운 리뷰만 필터
               const filtered = data.filter(
                 (r) =>
                   Math.abs(r.lat - newPosition.lat) < 0.001 &&
@@ -81,12 +95,22 @@ function App() {
     }
   };
 
-  // 🔥 리뷰 저장 (POST)
+  // 🔥 리뷰 저장
   const saveReview = async () => {
     if (!marker) return;
 
+    if (reviewRating === 0) {
+      alert('별점 선택해라');
+      return;
+    }
+
+    if (!reviewText.trim()) {
+      alert('리뷰 입력해라');
+      return;
+    }
+
     try {
-      await fetch('http://127.0.0.1:8000/review', {
+      const res = await fetch(`${API_URL}/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -97,23 +121,20 @@ function App() {
         }),
       });
 
-      // 🔥 저장 후 다시 불러오기
-      const res = await fetch('http://127.0.0.1:8000/reviews');
-      const data = await res.json();
+      if (!res.ok) throw new Error('서버 오류');
 
-      const filtered = data.filter(
-        (r) =>
-          Math.abs(r.lat - marker.position.lat) < 0.001 &&
-          Math.abs(r.lng - marker.position.lng) < 0.001,
-      );
+      const result = await res.json();
 
-      setReviews(filtered);
+      // 🔥 바로 UI 반영 (AI 점수 포함)
+      setReviews((prev) => [...prev, result.data]);
+
       setReviewText('');
       setReviewRating(0);
 
       alert('저장됨!');
     } catch (err) {
       console.error(err);
+      alert('저장 실패');
     }
   };
 
@@ -143,46 +164,65 @@ function App() {
 
               <hr />
 
-              {/* 🔹 기존 리뷰 */}
-              {reviews.length > 0 &&
-                reviews.map((r, idx) => (
-                  <div key={idx} style={{ marginBottom: '5px' }}>
-                    <span>{'★'.repeat(r.score) + '☆'.repeat(5 - r.score)}</span>
-                    <p style={{ margin: '2px 0' }}>{r.content}</p>
-                  </div>
-                ))}
+              {/* ⭐ 사용자 평균 */}
+              <div>⭐ 평균 평점: {getUserAverage(reviews)}</div>
+
+              {/* ⚠️ AI 안전 점수 */}
+              <div
+                style={{
+                  color:
+                    getAiAverage(reviews) > 0.7
+                      ? 'red'
+                      : getAiAverage(reviews) > 0.4
+                        ? 'orange'
+                        : 'green',
+                }}
+              >
+                ⚠️ 안전 점수: {getAiAverage(reviews)}
+              </div>
 
               <hr />
 
-              {/* 🔹 리뷰 입력 */}
-              <div>
-                <div>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <span
-                      key={star}
-                      onClick={() => setReviewRating(star)}
-                      style={{
-                        cursor: 'pointer',
-                        color: star <= reviewRating ? 'gold' : 'gray',
-                        fontSize: '18px',
-                      }}
-                    >
-                      ★
-                    </span>
-                  ))}
+              {/* 🔥 리뷰 목록 */}
+              {reviews.length === 0 && <p>리뷰 없음</p>}
+
+              {reviews.map((r, idx) => (
+                <div key={`${r.lat}-${r.lng}-${idx}`}>
+                  <span>
+                    {'★'.repeat(r.user_score) + '☆'.repeat(5 - r.user_score)}
+                  </span>
+                  <p>{r.content}</p>
                 </div>
+              ))}
 
-                <textarea
-                  value={reviewText}
-                  onChange={(e) => setReviewText(e.target.value)}
-                  placeholder="리뷰 입력"
-                  style={{ width: '100%', marginTop: '5px' }}
-                />
+              <hr />
 
-                <button style={{ marginTop: '5px' }} onClick={saveReview}>
-                  저장
-                </button>
-              </div>
+              {/* 🔥 별점 입력 */}
+              {[1, 2, 3, 4, 5].map((star) => (
+                <span
+                  key={star}
+                  onClick={() => setReviewRating(star)}
+                  style={{
+                    cursor: 'pointer',
+                    color: star <= reviewRating ? 'gold' : 'gray',
+                    fontSize: '18px',
+                  }}
+                >
+                  ★
+                </span>
+              ))}
+
+              {/* 🔥 리뷰 입력 */}
+              <textarea
+                value={reviewText}
+                onChange={(e) => setReviewText(e.target.value)}
+                placeholder="리뷰 입력"
+                style={{ width: '100%', marginTop: '5px' }}
+              />
+
+              <button style={{ marginTop: '5px' }} onClick={saveReview}>
+                저장
+              </button>
             </div>
           </InfoWindow>
         </>
