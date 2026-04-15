@@ -82,7 +82,7 @@
 
 ## 5.  Core Algorithm / Logic (핵심 로직)
 
-🗺️ 안전 지도 생성 로직 (Safety Map Generation)
+**안전 지도 생성 로직 (Safety Map Generation)**
 
 본 시스템의 핵심 로직은 사용자 리뷰 데이터 + 공공 데이터 분석을 통한 안전도 점수 산출 및 지도 시각화입니다.
 <br>
