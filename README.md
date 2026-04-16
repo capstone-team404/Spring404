@@ -144,15 +144,15 @@ User
 
 ```text
 📦 Spring404 (main repository)
-┣ 🌿 frontend
+┣ 🌿 frontend-v2
 ┃ ┣ App.jsx
-┣ 🌿 backend
+┣ 🌿 backend-v2
 ┃ ┣ .gitignore
 ┃ ┣ db.py
 ┃ ┣ main.py
 ┃ ┣ schemas.py
 ┃ ┗ requirements.txt
-┣ 🌿 ai
+┣ 🌿 ai-v2
 ┃ ┣ .gitignore
 ┃ ┣ README.md
 ┃ ┣ main.py
