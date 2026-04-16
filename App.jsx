@@ -1,5 +1,5 @@
 import { useState } from 'react';
-//구글맵 관련 컴포넌
+//구글맵 관련 컴포넌트
 import {
   GoogleMap,
   useJsApiLoader, 
