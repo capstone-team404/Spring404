@@ -20,7 +20,7 @@ const center = {
 
 const LIBRARIES = ['places']; //place api사용 설정
 
-const API_URL = 'http://10.240.119.182:8000'; //백엔드 주소
+const API_URL = 'http://10.240.119.182:80'; //백엔드 주소
 
 //메인 컴포넌트
 function App() {
