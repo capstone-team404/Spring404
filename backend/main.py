@@ -4,7 +4,7 @@ from schemas import ReviewCreate
 from db import save_review, get_reviews
 import requests
 
-AI_URL = "http://10.240.150.63:8001/analyze"
+AI_URL = "http://10.240.81.7:8001/analyze"
 
 
 app = FastAPI()
