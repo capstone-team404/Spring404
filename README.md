@@ -135,29 +135,25 @@ User
 
 ## Repository Structure
 
-본 프로젝트는 Spring404 레포지토리 기반 멀티 브랜치 구조로 관리되며,  
-프론트엔드 / 백엔드 / AI 모듈이 각각 독립 브랜치에서 개발 및 관리됩니다.
-
 ```text
-📦 Spring404 (main repository)
-┣ 🌿 frontend-v2
+📦 Project Root(Spring404)
+┣ 📁 frontend
 ┃ ┣ App.jsx
-┣ 🌿 backend-v2
+┣ 📁 backend
 ┃ ┣ .gitignore
 ┃ ┣ db.py
 ┃ ┣ main.py
 ┃ ┣ schemas.py
 ┃ ┗ requirements.txt
-┣ 🌿 ai-v2
+┣ 📁 ai
 ┃ ┣ .gitignore
 ┃ ┣ README.md
 ┃ ┣ main.py
 ┃ ┗ requirements.txt
-┗ 🌿 main
-  ┗ 통합 관리 및 배포 브랜치
+┗ README.md
 ```
 
-### Branch Roles
+### Repository Structure
 
 #### frontend
 `App.jsx`
