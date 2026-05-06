@@ -153,7 +153,7 @@ User
 ┗ README.md
 ```
 
-### Repository Structure
+### Project Structure
 
 #### frontend
 `App.jsx`
