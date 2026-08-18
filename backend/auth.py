@@ -54,6 +54,10 @@ def init_auth_tables(cursor):
         'deleted_at': 'DATETIME NULL',
         'role': "VARCHAR(20) NOT NULL DEFAULT 'user'",
         'status': "VARCHAR(20) NOT NULL DEFAULT 'active'",
+        'verification_status': "VARCHAR(30) NOT NULL DEFAULT 'pending'",
+        'verified_at': 'DATETIME NULL',
+        'terms_agreed_at': 'DATETIME NULL',
+        'privacy_agreed_at': 'DATETIME NULL',
     }
     for column_name, definition in user_columns.items():
         cursor.execute(
@@ -63,6 +67,11 @@ def init_auth_tables(cursor):
         )
         if cursor.fetchone()['column_count'] == 0:
             cursor.execute(f'ALTER TABLE users ADD COLUMN {column_name} {definition}')
+    cursor.execute(
+        """UPDATE users
+           SET verification_status='verified', verified_at=COALESCE(verified_at, created_at), status='active'
+           WHERE gender_verified=TRUE AND verification_status<>'verified'"""
+    )
 
 
 def public_user(row):
@@ -77,6 +86,8 @@ def public_user(row):
         'role': role,
         'status': row.get('status') or 'active',
         'gender_verified': bool(row['gender_verified']),
+        'verification_status': row.get('verification_status') or ('verified' if row['gender_verified'] else 'pending'),
+        'verified_at': row.get('verified_at'),
     }
 
 
@@ -86,7 +97,16 @@ def signup_user(email, password, nickname):
             cursor.execute('SELECT id FROM users WHERE email=%s AND deleted_at IS NULL', (email.lower().strip(),))
             if cursor.fetchone():
                 raise HTTPException(409, detail='이미 가입된 이메일입니다.')
-            cursor.execute('INSERT INTO users (email,password_hash,nickname) VALUES (%s,%s,%s)', (email.lower().strip(), _hash_password(password), nickname.strip()))
+            cursor.execute('SELECT id FROM users WHERE nickname=%s AND deleted_at IS NULL', (nickname.strip(),))
+            if cursor.fetchone():
+                raise HTTPException(409, detail='이미 사용 중인 닉네임입니다.')
+            cursor.execute(
+                '''INSERT INTO users (
+                       email,password_hash,nickname,status,verification_status,
+                       terms_agreed_at,privacy_agreed_at
+                   ) VALUES (%s,%s,%s,'pending_verification','pending',UTC_TIMESTAMP(),UTC_TIMESTAMP())''',
+                (email.lower().strip(), _hash_password(password), nickname.strip()),
+            )
             user_id = cursor.lastrowid
             cursor.execute('SELECT * FROM users WHERE id=%s', (user_id,))
             return public_user(cursor.fetchone())
@@ -97,8 +117,10 @@ def login_user(email, password):
         with conn.cursor() as cursor:
             cursor.execute('SELECT * FROM users WHERE email=%s AND deleted_at IS NULL', (email.lower().strip(),))
             row = cursor.fetchone()
-            if not row or not _verify_password(password, row['password_hash']):
-                raise HTTPException(401, detail='이메일 또는 비밀번호가 올바르지 않습니다.')
+            if not row:
+                raise HTTPException(404, detail='가입되지 않은 이메일입니다.')
+            if not _verify_password(password, row['password_hash']):
+                raise HTTPException(401, detail='비밀번호가 올바르지 않습니다.')
             token = secrets.token_urlsafe(32)
             token_hash = hashlib.sha256(token.encode()).hexdigest()
             expires = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=SESSION_HOURS)
@@ -141,7 +163,17 @@ def verify_gender(user_id, test_code):
         raise HTTPException(400, detail='인증 코드가 올바르지 않습니다.')
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute('UPDATE users SET gender_verified=TRUE WHERE id=%s', (user_id,))
+            cursor.execute(
+                '''UPDATE users
+                   SET gender_verified=TRUE, verification_status='verified',
+                       verified_at=UTC_TIMESTAMP(), status='active'
+                   WHERE id=%s AND deleted_at IS NULL''',
+                (user_id,),
+            )
+            if cursor.rowcount == 0:
+                raise HTTPException(404, detail='인증할 회원을 찾을 수 없습니다.')
+            cursor.execute('SELECT * FROM users WHERE id=%s', (user_id,))
+            return public_user(cursor.fetchone())
 
 
 def update_user_profile(user_id, nickname=None, profile_image=None):
@@ -178,7 +210,9 @@ def delete_user_account(user_id):
             cursor.execute(
                 """UPDATE users
                    SET email=%s, password_hash='', nickname='탈퇴한 사용자',
-                       profile_image=NULL, gender_verified=FALSE, deleted_at=UTC_TIMESTAMP()
+                       profile_image=NULL, gender_verified=FALSE,
+                       verification_status='withdrawn', status='withdrawn',
+                       deleted_at=UTC_TIMESTAMP()
                    WHERE id=%s""",
                 (deleted_email, user_id),
             )

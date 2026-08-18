@@ -1,10 +1,34 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from auth_validation import validate_signup
 
 
 class SignupRequest(BaseModel):
     email: str = Field(min_length=5, max_length=255)
     password: str = Field(min_length=8, max_length=128)
-    nickname: str = Field(min_length=1, max_length=50)
+    password_confirm: str = Field(min_length=8, max_length=128)
+    nickname: str = Field(min_length=2, max_length=20)
+    terms_agreed: bool
+    privacy_agreed: bool
+
+    @model_validator(mode="after")
+    def validate_signup_fields(self):
+        try:
+            email, password, nickname = validate_signup(
+                self.email,
+                self.password,
+                self.password_confirm,
+                self.nickname,
+                self.terms_agreed,
+                self.privacy_agreed,
+            )
+        except ValueError as error:
+            raise ValueError(str(error)) from error
+        self.email = email
+        self.password = password
+        self.password_confirm = password
+        self.nickname = nickname
+        return self
 
 
 class LoginRequest(BaseModel):

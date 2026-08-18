@@ -1121,7 +1121,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
 
         if (!res.ok) throw new Error('리뷰 수정 실패');
 
-        await res.json();
+        const result = await res.json();
         setReviews((prev) =>
           prev.map((review) =>
             Number(review.id) === Number(editingReviewId)
@@ -1132,6 +1132,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
                   photo_data: firstPhoto.photo_data || null,
                   photo_name: firstPhoto.photo_name || null,
                   photos: reviewPhotos,
+                  ...(result.data || {}),
                 }
               : review,
           ),

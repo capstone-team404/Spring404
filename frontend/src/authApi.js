@@ -14,7 +14,12 @@ export async function authFetch(url, options = {}) {
 async function request(path, options = {}) {
   const response = await authFetch(`${API_URL}${path}`, options);
   let data = null; try { data = await response.json(); } catch { data = null; }
-  if (!response.ok) throw new Error(data?.detail?.message || data?.detail || '요청을 처리하지 못했습니다.');
+  if (!response.ok) {
+    const validationMessage = Array.isArray(data?.detail)
+      ? data.detail.map((item) => item?.msg?.replace(/^Value error,\s*/, '')).filter(Boolean)[0]
+      : null;
+    throw new Error(validationMessage || data?.detail?.message || data?.detail || '요청을 처리하지 못했습니다.');
+  }
   return data;
 }
 const json = (method, payload) => ({ method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
@@ -33,6 +38,8 @@ export const updateAdminReportStatus = (reviewId, reporterUserId, status) =>
   request(`/admin/reports/${reviewId}/${reporterUserId}`, json('PATCH', { status }));
 export const hideAdminReview = (reviewId, reason) =>
   request(`/admin/reviews/${reviewId}/hide`, json('PATCH', { reason }));
+export const deleteAdminReview = (reviewId, reason) =>
+  request(`/admin/reviews/${reviewId}`, json('DELETE', { reason }));
 export const restoreAdminReview = reviewId =>
   request(`/admin/reviews/${reviewId}/restore`, { method: 'PATCH' });
 export async function logout() { try { await request('/auth/logout', {method:'POST'}); } finally { clearToken(); } }

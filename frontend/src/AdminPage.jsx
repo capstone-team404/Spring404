@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   getAdminReports,
-  hideAdminReview,
+  deleteAdminReview,
   restoreAdminReview,
   updateAdminReportStatus,
 } from './authApi';
@@ -124,6 +124,7 @@ export default function AdminPage({ onBackToMap, onOpenReportedReview }) {
       setSelectedReport(null);
       await loadReports(status);
       await loadCounts();
+      setMessage('관리자 처리가 완료되었습니다.');
     } catch (err) {
       setMessage(err.message);
     }
@@ -134,10 +135,14 @@ export default function AdminPage({ onBackToMap, onOpenReportedReview }) {
       updateAdminReportStatus(report.review_id, report.reporter_user_id, nextStatus),
     );
 
-  const hideReview = () =>
-    finishAction((report) =>
-      hideAdminReview(report.review_id, report.reason || '관리자 검토 후 숨김 처리'),
+  const deleteReview = () => {
+    const reason = window.prompt(
+      '리뷰 삭제 사유를 입력해 주세요. 삭제 후에도 관리자가 복구할 수 있습니다.',
+      actionReport?.reason || selectedReport?.reason || '신고 내용 확인 후 관리자 삭제',
     );
+    if (reason === null) return;
+    finishAction((report) => deleteAdminReview(report.review_id, reason.trim() || '관리자 검토 후 삭제'));
+  };
 
   const restoreReview = () =>
     finishAction((report) => restoreAdminReview(report.review_id));
@@ -227,8 +232,8 @@ export default function AdminPage({ onBackToMap, onOpenReportedReview }) {
             <button type="button" className="admin-light-button" onClick={() => markReport('rejected')}>
               신고 기각
             </button>
-            <button type="button" className="admin-danger-button" onClick={hideReview}>
-              리뷰 숨김
+            <button type="button" className="admin-danger-button" onClick={deleteReview}>
+              리뷰 삭제
             </button>
             <button type="button" className="admin-outline-button" onClick={() => markReport('resolved')}>
               검토 완료
@@ -243,7 +248,7 @@ export default function AdminPage({ onBackToMap, onOpenReportedReview }) {
           <ActionSheet
             report={actionReport}
             onClose={() => setActionReport(null)}
-            onHide={hideReview}
+            onDelete={deleteReview}
             onReject={() => markReport('rejected')}
             onResolve={() => markReport('resolved')}
             onRestore={restoreReview}
@@ -278,7 +283,7 @@ export default function AdminPage({ onBackToMap, onOpenReportedReview }) {
             <span className="admin-menu-icon">!</span>
             <span>
               <strong>리뷰 신고 관리</strong>
-              <small>신고된 리뷰를 확인하고 숨김, 기각, 검토 완료 처리</small>
+              <small>신고된 리뷰를 확인하고 삭제, 기각, 검토 완료 처리</small>
             </span>
             <em>{counts.pending || 0}</em>
           </button>
@@ -362,7 +367,7 @@ export default function AdminPage({ onBackToMap, onOpenReportedReview }) {
         <ActionSheet
           report={actionReport}
           onClose={() => setActionReport(null)}
-          onHide={hideReview}
+          onDelete={deleteReview}
           onReject={() => markReport('rejected')}
           onResolve={() => markReport('resolved')}
           onRestore={restoreReview}
@@ -372,7 +377,7 @@ export default function AdminPage({ onBackToMap, onOpenReportedReview }) {
   );
 }
 
-function ActionSheet({ report, onClose, onHide, onReject, onResolve, onRestore }) {
+function ActionSheet({ report, onClose, onDelete, onReject, onResolve, onRestore }) {
   return (
     <div className="admin-sheet-backdrop" onClick={onClose}>
       <section className="admin-action-sheet" onClick={(event) => event.stopPropagation()}>
@@ -389,10 +394,10 @@ function ActionSheet({ report, onClose, onHide, onReject, onResolve, onRestore }
             <small>숨김 처리된 리뷰를 다시 보이게 합니다.</small>
           </button>
         ) : (
-          <button type="button" className="admin-action-option is-danger" onClick={onHide}>
+          <button type="button" className="admin-action-option is-danger" onClick={onDelete}>
             <span>!</span>
-            <strong>리뷰 숨김 처리</strong>
-            <small>리뷰를 임시로 숨기고 확인 후 최종 조치합니다.</small>
+            <strong>리뷰 삭제</strong>
+            <small>서비스에서 리뷰를 숨깁니다. 관리자는 나중에 복구할 수 있습니다.</small>
           </button>
         )}
 

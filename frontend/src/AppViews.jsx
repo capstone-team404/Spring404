@@ -949,6 +949,73 @@ export function BottomSheet({
               <div style={{ color: '#374151', fontSize: 14, textAlign: 'center' }}>
                 {review.content}
               </div>
+              {(review.ai_summary || review.ai_tags?.length > 0) && (
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: 11,
+                    borderRadius: 12,
+                    border: '1px solid #d1fae5',
+                    backgroundColor: '#f0fdf4',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      color: '#166534',
+                      fontSize: 12,
+                      fontWeight: 900,
+                    }}
+                  >
+                    <span>AI 안전 분석</span>
+                    <span>
+                      {Number(review.ai_score || 0).toFixed(1)} / 5 · 신뢰도{' '}
+                      {Math.round(Number(review.ai_confidence || 0) * 100)}%
+                    </span>
+                  </div>
+                  {review.ai_tags?.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
+                      {review.ai_tags.map((tag) => (
+                        <span
+                          key={`${review.id}-${tag}`}
+                          style={{
+                            padding: '4px 7px',
+                            borderRadius: 999,
+                            backgroundColor: '#dcfce7',
+                            color: '#166534',
+                            fontSize: 11,
+                            fontWeight: 800,
+                          }}
+                        >
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p style={{ margin: '8px 0 0', color: '#365b43', fontSize: 12, lineHeight: 1.55 }}>
+                    {review.ai_summary}
+                  </p>
+                  {review.reliability_status === 'low' && (
+                    <p style={{ margin: '7px 0 0', color: '#92400e', fontSize: 11, lineHeight: 1.45 }}>
+                      분석 신뢰도가 낮아 구역 안전도 계산에 일부만 반영됐어요.
+                    </p>
+                  )}
+                  {review.reliability_status === 'rejected' && (
+                    <p style={{ margin: '7px 0 0', color: '#b91c1c', fontSize: 11, lineHeight: 1.45 }}>
+                      안전 근거가 부족해 구역 안전도 계산에서는 제외됐어요.
+                    </p>
+                  )}
+                  {review.analysis_source === 'rule_fallback' && (
+                    <div style={{ marginTop: 6, color: '#6b7280', fontSize: 10 }}>
+                      규칙 기반 대체 분석
+                    </div>
+                  )}
+                </div>
+              )}
               {review.is_admin_focus && (
                 <div
                   style={{

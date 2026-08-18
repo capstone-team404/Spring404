@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import json
 from contextlib import contextmanager
 
 import pymysql
@@ -163,6 +164,14 @@ def init_tables():
                 "moderated_by": "INT NULL",
                 "moderated_at": "DATETIME NULL",
                 "moderation_reason": "TEXT NULL",
+                "ai_summary": "TEXT NULL",
+                "ai_tags": "TEXT NULL",
+                "ai_confidence": "FLOAT NOT NULL DEFAULT 1.0",
+                "reliability_status": "VARCHAR(30) NOT NULL DEFAULT 'normal'",
+                "reliability_reasons": "TEXT NULL",
+                "reliability_weight": "FLOAT NOT NULL DEFAULT 1.0",
+                "analysis_source": "VARCHAR(30) NOT NULL DEFAULT 'legacy'",
+                "analyzed_at": "DATETIME NULL",
             }
             for column_name, definition in review_columns.items():
                 cursor.execute(
@@ -315,14 +324,39 @@ def _insert_photos(cursor, review_id, photos):
     ) if photos else None
 
 
-def save_review(review, ai_score, user_id):
+def _decode_json_list(value):
+    if isinstance(value, list):
+        return value
+    if not value:
+        return []
+    try:
+        decoded = json.loads(value)
+        return decoded if isinstance(decoded, list) else []
+    except (TypeError, ValueError):
+        return []
+
+
+def _attach_analysis(rows):
+    for row in rows:
+        row["ai_tags"] = _decode_json_list(row.get("ai_tags"))
+        row["reliability_reasons"] = _decode_json_list(row.get("reliability_reasons"))
+        row["ai_confidence"] = float(row.get("ai_confidence") or 0)
+        row["reliability_weight"] = float(row.get("reliability_weight") or 0)
+    return rows
+
+
+def save_review(review, analysis, user_id):
     zone_id = calculate_zone_id(review.lat, review.lng)
     if zone_id is None:
         raise ValueError("Review location is outside the Hongdae safety map area")
 
     sql = """
-    INSERT INTO review (content, zone_id, lat, lng, user_score, ai_score, user_id)
-    VALUES (%s, %s, %s, %s, %s, %s, %s)
+    INSERT INTO review (
+        content, zone_id, lat, lng, user_score, ai_score, user_id,
+        ai_summary, ai_tags, ai_confidence, reliability_status,
+        reliability_reasons, reliability_weight, analysis_source, analyzed_at
+    )
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP())
     """
     with get_connection() as conn:
         with conn.cursor() as cursor:
@@ -334,7 +368,14 @@ def save_review(review, ai_score, user_id):
                     review.lat,
                     review.lng,
                     review.user_score,
-                    ai_score, user_id,
+                    analysis["ai_score"], user_id,
+                    analysis["summary"],
+                    json.dumps(analysis["tags"], ensure_ascii=False),
+                    analysis["confidence"],
+                    analysis["reliability_status"],
+                    json.dumps(analysis["reliability_reasons"], ensure_ascii=False),
+                    analysis["reliability_weight"],
+                    analysis["analysis_source"],
                 ),
             )
             review_id = cursor.lastrowid
@@ -345,6 +386,8 @@ def save_review(review, ai_score, user_id):
 def get_reviews(sort="latest"):
     order = "like_count DESC, created_at DESC" if sort == "helpful" else "created_at DESC"
     sql = f"""SELECT id,content,zone_id,lat,lng,user_score,ai_score,user_id,
+        ai_summary,ai_tags,ai_confidence,reliability_status,reliability_reasons,
+        reliability_weight,analysis_source,analyzed_at,
         like_count,report_count,report_status,created_at,updated_at
         FROM review WHERE deleted_at IS NULL AND moderation_status <> 'hidden' ORDER BY {order}"""
     with get_connection() as conn:
@@ -360,7 +403,7 @@ def get_reviews(sort="latest"):
                     photos.setdefault(photo["review_id"], []).append({"photo_data": photo["photo_data"], "photo_name": photo["photo_name"]})
                 for row in rows:
                     row["photos"] = photos.get(row["id"], [])
-            return rows
+            return _attach_analysis(rows)
 
 
 def attach_review_photos(cursor, rows):
@@ -484,11 +527,25 @@ def get_user_report_history(user_id):
     }
 
 
-def update_review(review_id, review, user_id, ai_score=None):
+def update_review(review_id, review, user_id, analysis=None):
     fields, values = [], []
     if review.content is not None:
-        fields += ["content=%s", "ai_score=%s"]
-        values += [review.content, ai_score]
+        fields += [
+            "content=%s", "ai_score=%s", "ai_summary=%s", "ai_tags=%s",
+            "ai_confidence=%s", "reliability_status=%s", "reliability_reasons=%s",
+            "reliability_weight=%s", "analysis_source=%s", "analyzed_at=UTC_TIMESTAMP()",
+        ]
+        values += [
+            review.content,
+            analysis["ai_score"],
+            analysis["summary"],
+            json.dumps(analysis["tags"], ensure_ascii=False),
+            analysis["confidence"],
+            analysis["reliability_status"],
+            json.dumps(analysis["reliability_reasons"], ensure_ascii=False),
+            analysis["reliability_weight"],
+            analysis["analysis_source"],
+        ]
     if review.user_score is not None:
         fields.append("user_score=%s")
         values.append(review.user_score)
@@ -798,9 +855,12 @@ def get_public_safety_zones():
 
 def get_review_score_average(zone_id):
     sql = """
-    SELECT AVG((user_score + ai_score) / 2) AS review_safety_score
+    SELECT
+        SUM(((user_score + ai_score) / 2) * reliability_weight)
+        / NULLIF(SUM(reliability_weight), 0) AS review_safety_score
     FROM review
     WHERE zone_id = %s AND deleted_at IS NULL
+      AND reliability_status <> 'rejected'
     """
     with get_connection() as conn:
         with conn.cursor() as cursor:
@@ -858,10 +918,12 @@ def get_map_zones():
         COALESCE(psz.convenience_count, 0) AS convenience_count,
         COALESCE(psz.police_count, 0) AS police_count,
         COALESCE(psz.public_safety_score, 0) AS public_safety_score,
-        AVG((r.user_score + r.ai_score) / 2) AS review_safety_score
+        SUM(((r.user_score + r.ai_score) / 2) * r.reliability_weight)
+          / NULLIF(SUM(r.reliability_weight), 0) AS review_safety_score
     FROM safety_zone sz
     LEFT JOIN public_safety_zone psz ON sz.zone_id = psz.zone_id
-    LEFT JOIN review r ON sz.zone_id = r.zone_id AND r.deleted_at IS NULL
+    LEFT JOIN review r ON sz.zone_id = r.zone_id
+      AND r.deleted_at IS NULL AND r.reliability_status <> 'rejected'
     GROUP BY
         sz.zone_id,
         sz.row_index,

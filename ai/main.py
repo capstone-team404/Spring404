@@ -1,5 +1,7 @@
 import json
 import os
+import sys
+from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
@@ -7,6 +9,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from pydantic import BaseModel
+AI_DIR = Path(__file__).resolve().parent
+if str(AI_DIR) not in sys.path:
+    sys.path.insert(0, str(AI_DIR))
+
+from review_analysis import ALLOWED_TAGS, build_analysis
 
 load_dotenv()
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -25,6 +32,7 @@ app.add_middleware(
 
 class ReviewInput(BaseModel):
     review: str
+    user_score: float | None = None
 
 
 class RoutePoint(BaseModel):
@@ -61,18 +69,23 @@ def clamp_score(score: float) -> float:
     return max(0.0, min(float(score), 5.0))
 
 
-def analyze_review_with_ai(review_text: str) -> float:
+def analyze_review_with_ai(review_text: str) -> dict:
+    allowed_tags = ", ".join(sorted(ALLOWED_TAGS))
     system_instruction = (
-        "You are a CPTED safety expert. Analyze the user's place review and "
-        "return only JSON. Score physical safety from 1 to 5, where 5 is very "
-        'safe and 1 is very unsafe. Output format: {"ai_score": 3.5}'
+        "You are a CPTED safety expert for a Korean women's solo travel safety map. "
+        "Analyze only the safety evidence in the review and return JSON. "
+        "Score safety from 0 to 5, where 5 is very safe. "
+        f"Tags must be chosen only from this list: {allowed_tags}. "
+        "Write one short Korean summary without claiming safety is guaranteed. "
+        'Output format: {"ai_score": 3.5, "tags": ["밝은 조명"], '
+        '"summary": "조명이 밝아 야간 이동에 안심 요소가 있어요."}'
     )
 
     try:
         if client is None:
             raise RuntimeError("OPENAI_API_KEY is not configured")
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OPENAI_REVIEW_MODEL", "gpt-4o-mini"),
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_instruction},
@@ -81,10 +94,13 @@ def analyze_review_with_ai(review_text: str) -> float:
             temperature=0.2,
         )
         result = json.loads(response.choices[0].message.content)
-        return clamp_score(result.get("ai_score", 3.0))
-    except Exception as e:
-        print(f"OpenAI review analysis failed, using default score 3.0: {e}")
-        return 3.0
+        return {
+            "ai_score": clamp_score(result.get("ai_score", 3.0)),
+            "tags": result.get("tags") or [],
+            "summary": result.get("summary") or "",
+        }
+    except Exception:
+        raise
 
 
 def apply_keyword_penalties(review_text: str, ai_score: float) -> float:
@@ -122,9 +138,14 @@ def apply_keyword_penalties(review_text: str, ai_score: float) -> float:
 
 @app.post("/analyze")
 async def analyze_endpoint(payload: ReviewInput):
-    ai_score = analyze_review_with_ai(payload.review)
-    danger_score = apply_keyword_penalties(payload.review, ai_score)
-    return {"ai_score": round(5.0 - danger_score, 2), "danger_score": round(danger_score, 2)}
+    try:
+        ai_payload = analyze_review_with_ai(payload.review)
+        source = "openai"
+    except Exception as e:
+        print(f"OpenAI review analysis failed, using rule fallback: {e}")
+        ai_payload = None
+        source = "rule_fallback"
+    return build_analysis(payload.review, payload.user_score, ai_payload, source)
 
 
 def find_zone_id_for_point(point: RoutePoint, zones: list[ZoneInput]) -> int | None:

@@ -37,6 +37,7 @@ from db import (
 )
 from auth import delete_user_account, login_user, logout_token, require_admin, require_user, require_verified_user, signup_user, update_user_profile, verify_gender
 from schemas import AccountDeleteRequest, AdminReportStatusRequest, AdminReviewModerationRequest, GenderVerificationRequest, LoginRequest, ProfileUpdateRequest, PublicSafetyZoneCreate, ReviewCreate, ReviewReportRequest, ReviewUpdate, RouteSafetyRequest, SignupRequest
+from review_analysis import build_analysis
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -104,7 +105,9 @@ def health_check():
 
 @app.post("/auth/signup")
 def signup(payload: SignupRequest):
-    return {"user": signup_user(payload.email, payload.password, payload.nickname)}
+    user = signup_user(payload.email, payload.password, payload.nickname)
+    token, user = login_user(payload.email, payload.password)
+    return {"access_token": token, "token_type": "bearer", "user": user}
 
 
 @app.post("/auth/login")
@@ -120,9 +123,7 @@ def me(user=Depends(require_user)):
 
 @app.post("/auth/verify-gender")
 def gender_verification(payload: GenderVerificationRequest, user=Depends(require_user)):
-    verify_gender(user["id"], payload.test_code)
-    user["gender_verified"] = True
-    return {"user": user}
+    return {"user": verify_gender(user["id"], payload.test_code)}
 
 
 @app.post("/auth/logout")
@@ -198,6 +199,20 @@ def hide_admin_review(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.delete("/admin/reviews/{review_id}")
+def delete_admin_review(
+    review_id: int,
+    payload: AdminReviewModerationRequest,
+    admin=Depends(require_admin),
+):
+    """MVP 관리자 삭제는 복구 가능한 soft delete로 처리한다."""
+    try:
+        hide_review_by_admin(review_id, admin["id"], payload.reason or "관리자 검토 후 삭제")
+        return {"message": "deleted", "recoverable": True}
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @app.patch("/admin/reviews/{review_id}/restore")
 def restore_admin_review(review_id: int, admin=Depends(require_admin)):
     try:
@@ -207,46 +222,33 @@ def restore_admin_review(review_id: int, admin=Depends(require_admin)):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-def clamp_ai_score(score):
-    return max(0.0, min(float(score), 5.0))
-
-
-def fallback_ai_score(text):
-    score = 3.0
-
-    for keyword, penalty in FALLBACK_PENALTY_KEYWORDS.items():
-        if keyword in text:
-            score -= penalty
-
-    for keyword, bonus in FALLBACK_BONUS_KEYWORDS.items():
-        if keyword in text:
-            score += bonus
-
-    return clamp_ai_score(score)
-
-
-def call_ai(text):
+def call_ai(text, user_score=None):
     try:
-        res = requests.post(AI_URL, json={"review": text}, timeout=AI_TIMEOUT)
+        res = requests.post(
+            AI_URL,
+            json={"review": text, "user_score": user_score},
+            timeout=AI_TIMEOUT,
+        )
         res.raise_for_status()
         data = res.json()
-        if "ai_score" in data:
-            ai_score = float(data.get("ai_score") or 0)
-            return clamp_ai_score(ai_score)
-        danger_score = float(data.get("danger_score") or 0)
-        danger_score = clamp_ai_score(danger_score)
-        return 5.0 - danger_score
+        required = {
+            "ai_score", "tags", "summary", "confidence", "reliability_status",
+            "reliability_reasons", "reliability_weight", "analysis_source",
+        }
+        if required.issubset(data):
+            return data
+        return build_analysis(text, user_score, data, "openai")
     except Exception as e:
         logger.exception("AI review analysis failed: %s", e)
-        return fallback_ai_score(text)
+        return build_analysis(text, user_score, source="rule_fallback")
 
 
 @app.post("/review")
 def create_review(review: ReviewCreate, user=Depends(require_verified_user)):
-    ai_score = call_ai(review.content)
+    analysis = call_ai(review.content, review.user_score)
 
     try:
-        zone_id, review_id = save_review(review, ai_score, user["id"])
+        zone_id, review_id = save_review(review, analysis, user["id"])
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -265,7 +267,15 @@ def create_review(review: ReviewCreate, user=Depends(require_verified_user)):
             "lat": review.lat,
             "lng": review.lng,
             "user_score": review.user_score,
-            "ai_score": ai_score,
+            "ai_score": analysis["ai_score"],
+            "ai_summary": analysis["summary"],
+            "ai_tags": analysis["tags"],
+            "ai_confidence": analysis["confidence"],
+            "reliability_status": analysis["reliability_status"],
+            "reliability_reasons": analysis["reliability_reasons"],
+            "reliability_weight": analysis["reliability_weight"],
+            "analysis_source": analysis["analysis_source"],
+            "photos": [photo.model_dump() for photo in review.photos],
             "public_safety_score": safety_score["public_safety_score"],
             "final_safety_score": safety_score["final_safety_score"],
         },
@@ -428,8 +438,9 @@ def read_reviews(sort: str = "latest", _user=Depends(require_verified_user)):
 @app.patch("/reviews/{review_id}")
 def edit_review(review_id: int, payload: ReviewUpdate, user=Depends(require_verified_user)):
     try:
-        update_review(review_id, payload, user["id"], call_ai(payload.content) if payload.content is not None else None)
-        return {"message": "updated"}
+        analysis = call_ai(payload.content, payload.user_score) if payload.content is not None else None
+        update_review(review_id, payload, user["id"], analysis)
+        return {"message": "updated", "data": analysis}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except PermissionError as e:
