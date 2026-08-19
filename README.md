@@ -186,13 +186,6 @@ User
 ┃ ┣ package.json
 ┃ ┗ package-lock.json
 ┣ 📁 backend
-┃ ┣ 📁 data
-┃ ┃ ┣ police_hongdae_1km.csv
-┃ ┃ ┣ public_facilities_hongdae_1km.csv
-┃ ┃ ┗ sample_lamp.csv
-┃ ┣ 📁 scripts
-┃ ┃ ┣ geocode_addresses.py
-┃ ┃ ┗ import_public_safety_csv.py
 ┃ ┣ .gitignore
 ┃ ┣ db.py
 ┃ ┣ main.py
@@ -274,16 +267,6 @@ User
 `requirements.txt`
 - 백엔드 실행에 필요한 라이브러리 목록
 - 동일한 개발 환경 재현을 위한 의존성 관리 파일
-
-`data/`
-- 공공 안전 인프라 CSV 데이터 관리
-- CCTV, 편의점, 경찰 시설, 보안등 데이터 보관
-- 공공 안전 점수 계산을 위한 초기 적재 데이터 관리
-
-`scripts/`
-- 공공 안전 인프라 CSV 데이터 전처리 및 적재 스크립트 관리
-- 좌표 기반 시설 데이터를 격자 구역별 개수로 집계
-- 주소 기반 데이터를 위도/경도 좌표로 변환하는 보조 도구 관리
 
 #### ai
 `.gitignore`
