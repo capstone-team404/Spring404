@@ -1,13 +1,12 @@
-import React from 'react';
-import { GoogleMap, Marker, OverlayView } from '@react-google-maps/api';
+import React, { useEffect, useRef } from 'react';
 
 import {
   center,
+  INITIAL_MAP_ZOOM,
   mapStyle,
-  getMyLocationIcon,
-  getPinIcon,
   getSafetyColor,
   getUserAverage,
+  toTmapLatLng,
   handlePlaceIconError,
 } from './mapHelpers';
 
@@ -222,6 +221,7 @@ export function SearchPanel({
 export function MapView({
   setMap,
   handleReviewPlaceSelect,
+  tmapReady,
   myLocation,
   selectedPlace,
   isRouteView,
@@ -229,163 +229,122 @@ export function MapView({
   startPoint,
   endPoint,
 }) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const markersRef = useRef([]);
+
+  const moveMapTo = (position, zoom = 16) => {
+    const map = mapRef.current;
+    if (!map || !position) return;
+
+    const lat = Number(position.lat);
+    const lng = Number(position.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const nextCenter = toTmapLatLng({ lat, lng });
+    if (typeof map.setZoom === 'function') map.setZoom(zoom);
+    if (typeof map.setCenter === 'function') map.setCenter(nextCenter);
+    if (typeof map.panTo === 'function') map.panTo(nextCenter);
+  };
+
+  useEffect(() => {
+    if (!tmapReady || !containerRef.current || mapRef.current) return;
+
+    const mapInstance = new window.Tmapv2.Map(containerRef.current, {
+      center: toTmapLatLng(center),
+      width: '100%',
+      height: '100%',
+      zoom: INITIAL_MAP_ZOOM,
+      zoomControl: false,
+      scrollwheel: true,
+    });
+
+    mapRef.current = mapInstance;
+    setMap(mapInstance);
+
+    mapInstance.addListener('click', (event) => {
+      const latLng = event.latLng || event.latlng;
+      if (!latLng) return;
+
+      handleReviewPlaceSelect({
+        position: {
+          lat: typeof latLng.lat === 'function' ? latLng.lat() : latLng._lat ?? latLng.lat,
+          lng: typeof latLng.lng === 'function' ? latLng.lng() : latLng._lng ?? latLng.lng,
+        },
+      });
+    });
+  }, [handleReviewPlaceSelect, setMap, tmapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.Tmapv2) return;
+
+    markersRef.current.forEach((marker) => marker.setMap(null));
+    markersRef.current = [];
+
+    const addMarker = (position, title) => {
+      if (!position) return;
+      const marker = new window.Tmapv2.Marker({
+        position: toTmapLatLng(position),
+        map,
+        title,
+      });
+      markersRef.current.push(marker);
+    };
+
+    addMarker(myLocation, '내 위치');
+
+    if (selectedPlace && !isRouteView) {
+      addMarker(selectedPlace.position, selectedPlace.name);
+    }
+
+    if (startPoint) {
+      addMarker(startPoint.position, `출발: ${startPoint.name}`);
+    }
+
+    if (endPoint) {
+      addMarker(endPoint.position, `도착: ${endPoint.name}`);
+    }
+  }, [endPoint, isRouteView, myLocation, selectedPlace, startPoint]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !selectedPlace?.position || isRouteView) return;
+
+    moveMapTo(selectedPlace.position, 16);
+  }, [isRouteView, selectedPlace]);
+
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
-      <GoogleMap
-        mapContainerStyle={mapStyle}
-        center={center}
-        zoom={16}
-        options={{
-          clickableIcons: true,
-          fullscreenControl: false,
-          streetViewControl: false,
-          mapTypeControl: false,
-          zoomControl: false,
-        }}
-        onLoad={(mapInstance) => setMap(mapInstance)}
-        onClick={handleReviewPlaceSelect}
-      >
-        {myLocation && (
-          <>
-            <OverlayView
-              position={myLocation}
-              mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-              getPixelPositionOffset={() => ({ x: -22, y: -22 })}
-            >
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 999,
-                  backgroundColor: 'rgba(37, 99, 235, 0.16)',
-                  boxShadow:
-                    '0 0 12px rgba(37, 99, 235, 0.55), 0 0 28px rgba(37, 99, 235, 0.28)',
-                  border: '1px solid rgba(37, 99, 235, 0.28)',
-                }}
-              />
-            </OverlayView>
-
-            <Marker
-              position={myLocation}
-              icon={getMyLocationIcon()}
-              title="내 위치"
-              zIndex={30}
-            />
-          </>
-        )}
-
-        {selectedPlace && !isRouteView && (
-          <>
-            <OverlayView
-              position={selectedPlace.position}
-              mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-              getPixelPositionOffset={() => ({ x: -22, y: -48 })}
-            >
-              <button
-                onClick={() => openPlaceDetail(selectedPlace)}
-                style={{
-                  width: 44,
-                  height: 44,
-                  border: 'none',
-                  borderRadius: '50% 50% 50% 0',
-                  backgroundColor: '#14532d',
-                  transform: 'rotate(-45deg)',
-                  boxShadow: '0 4px 12px rgba(15, 23, 42, 0.28)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
-              >
-                <span
-                  style={{
-                    width: 25,
-                    height: 25,
-                    borderRadius: 999,
-                    backgroundColor: '#ffffff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transform: 'rotate(45deg)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {selectedPlace.icon ? (
-                    <>
-                      <img
-                        src={selectedPlace.icon}
-                        alt=""
-                        onError={handlePlaceIconError}
-                        style={{ width: 17, height: 17 }}
-                      />
-                      <span style={{ display: 'none', fontSize: 14 }}>📍</span>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 14 }}>📍</span>
-                  )}
-                </span>
-              </button>
-            </OverlayView>
-
-            <OverlayView
-              position={selectedPlace.position}
-              mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-              getPixelPositionOffset={() => ({ x: 0, y: 18 })}
-            >
-              <div
-                style={{
-                  display: 'inline-block',
-                  width: 'max-content',
-                  maxWidth: 240,
-                  transform: 'translateX(-50%)',
-                  backgroundColor: '#ffffff',
-                  color: '#111827',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: 999,
-                  padding: '6px 12px',
-                  boxShadow: '0 4px 12px rgba(15, 23, 42, 0.18)',
-                  fontSize: 12,
-                  fontWeight: 900,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {selectedPlace.name}
-              </div>
-            </OverlayView>
-          </>
-        )}
-
-        {startPoint && (
-          <Marker
-            position={startPoint.position}
-            icon={getPinIcon('#2563eb')}
-            label={{
-              text: '출발',
-              color: '#ffffff',
-              fontWeight: '900',
-              fontSize: '9px',
-            }}
-            title={`출발: ${startPoint.name}`}
-          />
-        )}
-
-        {endPoint && (
-          <Marker
-            position={endPoint.position}
-            icon={getPinIcon('#ef4444')}
-            label={{
-              text: '도착',
-              color: '#ffffff',
-              fontWeight: '900',
-              fontSize: '9px',
-            }}
-            title={`도착: ${endPoint.name}`}
-          />
-        )}
-      </GoogleMap>
+      <div ref={containerRef} style={mapStyle} />
+      {selectedPlace && !isRouteView && (
+        <button
+          type="button"
+          onClick={() => openPlaceDetail(selectedPlace)}
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            zIndex: 12,
+            transform: 'translate(-50%, calc(-100% - 12px))',
+            maxWidth: 240,
+            border: '1px solid #e5e7eb',
+            borderRadius: 999,
+            backgroundColor: '#ffffff',
+            color: '#111827',
+            padding: '7px 12px',
+            boxShadow: '0 4px 12px rgba(15, 23, 42, 0.18)',
+            fontSize: 12,
+            fontWeight: 900,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            cursor: 'pointer',
+          }}
+        >
+          {selectedPlace.name}
+        </button>
+      )}
     </div>
   );
 }
@@ -971,7 +930,7 @@ export function BottomSheet({
                       fontWeight: 900,
                     }}
                   >
-                    <span>AI 안전 분석</span>
+                    <span>AI 리뷰 분석</span>
                     <span>
                       {Number(review.ai_score || 0).toFixed(1)} / 5 · 신뢰도{' '}
                       {Math.round(Number(review.ai_confidence || 0) * 100)}%

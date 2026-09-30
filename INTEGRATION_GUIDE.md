@@ -8,7 +8,7 @@ Min Score 경로 추천과 결과형 AI 설명을 하나로 합친 로컬 통합
 1. MySQL에 `safety_db` 데이터베이스를 만들고 `backend/.env.example`을 `backend/.env`로 복사해 값을 채웁니다.
 2. `backend`에서 `pip install -r requirements.txt` 후 `uvicorn main:app --reload --port 8000`을 실행합니다.
 3. `ai`에서 `pip install -r requirements.txt` 후 `uvicorn main:app --reload --port 8001`을 실행합니다.
-4. `frontend/.env.example`을 `frontend/.env`로 복사하고 Google Maps/TMAP 키를 넣습니다.
+4. `frontend/.env.example`을 `frontend/.env`로 복사하고 TMAP 키를 넣습니다.
 5. `frontend`에서 `npm install`, `npm run dev`를 실행합니다.
 
 MVP 인증 기본 코드는 `HEREJI404`입니다. 운영 전에는 실제 본인인증으로 교체해야 합니다.

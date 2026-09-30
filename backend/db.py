@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
     "user": os.getenv("DB_USER", "root"),
-    "password": os.getenv("DB_PASSWORD", ""),
+    "password": os.getenv("DB_PASSWORD", "7843"),
     "database": os.getenv("DB_NAME", "safety_db"),
     "port": int(os.getenv("DB_PORT", "3306")),
     "charset": "utf8mb4",
@@ -109,6 +109,20 @@ def build_safety_zones():
                 }
             )
     return zones
+
+
+def repair_review_zone_ids(cursor):
+    cursor.execute("SELECT id, lat, lng, zone_id FROM review")
+    updates = []
+
+    for review in cursor.fetchall():
+        next_zone_id = calculate_zone_id(float(review["lat"]), float(review["lng"]))
+        if next_zone_id is not None and int(review.get("zone_id") or 0) != next_zone_id:
+            updates.append((next_zone_id, review["id"]))
+
+    if updates:
+        cursor.executemany("UPDATE review SET zone_id=%s WHERE id=%s", updates)
+        logger.info("Repaired %s review zone ids", len(updates))
 
 
 def init_tables():
@@ -296,6 +310,7 @@ def init_tables():
                 """,
                 zones,
             )
+            repair_review_zone_ids(cursor)
 
 
 def _review_photos(review):

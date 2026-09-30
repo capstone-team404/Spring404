@@ -1,12 +1,12 @@
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 export const TMAP_APP_KEY = import.meta.env.VITE_TMAP_APP_KEY || '';
 
-export const LIBRARIES = ['places', 'geometry'];
-
 export const center = {
-  lat: 37.5563,
-  lng: 126.9236,
+  lat: 37.557527,
+  lng: 126.924466,
 };
+
+export const INITIAL_MAP_ZOOM = 17;
 
 export const mapStyle = {
   width: '100%',
@@ -81,26 +81,62 @@ export const handlePlaceIconError = (e) => {
   }
 };
 
-export const getPinIcon = (color) => {
-  return {
-    path: 'M12 2C8.14 2 5 5.14 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.86-3.14-7-7-7z',
-    fillColor: color,
-    fillOpacity: 1,
-    strokeColor: '#ffffff',
-    strokeWeight: 2,
-    scale: 1.9,
-    anchor: new window.google.maps.Point(12, 22),
-    labelOrigin: new window.google.maps.Point(12, 8.5),
-  };
+export const toTmapLatLng = (position) => {
+  return new window.Tmapv2.LatLng(Number(position.lat), Number(position.lng));
 };
 
-export const getMyLocationIcon = () => {
-  return {
-    path: window.google.maps.SymbolPath.CIRCLE,
-    scale: 9,
-    fillColor: '#2563eb',
-    fillOpacity: 1,
-    strokeColor: '#ffffff',
-    strokeWeight: 3,
-  };
+let tmapScriptPromise;
+
+export const loadTmapScript = () => {
+  if (window.Tmapv2) return Promise.resolve();
+
+  if (!TMAP_APP_KEY) {
+    return Promise.reject(new Error('frontend/.env에 VITE_TMAP_APP_KEY를 설정한 뒤 dev 서버를 다시 시작해 주세요.'));
+  }
+
+  if (tmapScriptPromise) return tmapScriptPromise;
+
+  tmapScriptPromise = new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      if (window.Tmapv2) {
+        settled = true;
+        resolve();
+      }
+    };
+    const fail = (message) => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(message));
+    };
+
+    const existing = document.querySelector('script[src*="/tmap/jsv2"]');
+
+    if (existing) {
+      existing.addEventListener('load', () => {
+        if (window.Tmapv2) finish();
+        else fail('티맵 SDK는 로드됐지만 Tmapv2 객체를 찾지 못했습니다.');
+      }, { once: true });
+      existing.addEventListener('error', () => fail('티맵 SDK 로드 실패'), { once: true });
+
+      const intervalId = window.setInterval(finish, 100);
+      window.setTimeout(() => {
+        window.clearInterval(intervalId);
+        if (window.Tmapv2) finish();
+        else fail('티맵 SDK를 불러오지 못했습니다. 키의 웹 도메인 허용 또는 네트워크를 확인해 주세요.');
+      }, 8000);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.dataset.tmapSdk = 'true';
+    script.async = true;
+    script.src = `https://apis.openapi.sk.com/tmap/jsv2?version=1&appKey=${encodeURIComponent(TMAP_APP_KEY)}`;
+    script.onload = finish;
+    script.onerror = () => fail('티맵 SDK 로드 실패');
+    document.head.appendChild(script);
+  });
+
+  return tmapScriptPromise;
 };

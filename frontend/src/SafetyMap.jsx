@@ -1,19 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useJsApiLoader } from '@react-google-maps/api';
 
 import {
   API_URL,
   TMAP_APP_KEY,
-  LIBRARIES,
   center,
   NEAR_ROUTE_DISTANCE_METER,
   HOME_SHEET_HEIGHT,
   PLACE_SHEET_HEIGHT,
   ROUTE_SHEET_HEIGHT,
-  isInKorea,
   getAiAverage,
   formatMeter,
   formatSecond,
+  loadTmapScript,
+  toTmapLatLng,
 } from './mapHelpers';
 import { BottomSheet, MapView, MyLocationButton, SearchPanel } from './AppViews';
 import { authFetch } from './authApi';
@@ -35,10 +34,8 @@ const REPORT_REASONS = [
 function SafetyMap({ user, onUserChange, onLogout }) {
   const [screen, setScreen] = useState('map');
   const [menuOpen, setMenuOpen] = useState(false);
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
-    libraries: LIBRARIES,
-  });
+  const [tmapReady, setTmapReady] = useState(false);
+  const [tmapLoadError, setTmapLoadError] = useState('');
 
   const [map, setMap] = useState(null);
   const [selectedPlace, setSelectedPlace] = useState(null);
@@ -84,6 +81,26 @@ function SafetyMap({ user, onUserChange, onLogout }) {
   const selectedRoute = routeCandidates[selectedRouteIndex];
   const isRouteView = routeCandidates.length > 0 || routeLoading || routeError;
 
+  const getLatLngPosition = (latLng) => {
+    if (!latLng) return center;
+
+    return {
+      lat: typeof latLng.lat === 'function' ? latLng.lat() : latLng._lat,
+      lng: typeof latLng.lng === 'function' ? latLng.lng() : latLng._lng,
+    };
+  };
+
+  useEffect(() => {
+    loadTmapScript()
+      .then(() => {
+        setTmapReady(true);
+        setTmapLoadError('');
+      })
+      .catch((err) => {
+        setTmapLoadError(err.message || '티맵 SDK를 불러오지 못했습니다.');
+      });
+  }, []);
+
   const clearRouteLine = () => {
     if (routeLineRef.current) {
       routeLineRef.current.setMap(null);
@@ -104,8 +121,10 @@ function SafetyMap({ user, onUserChange, onLogout }) {
 
     clearRouteLine();
 
-    routeGlowRef.current = new window.google.maps.Polyline({
-      path: selectedRoute.path,
+    const path = selectedRoute.path.map(toTmapLatLng);
+
+    routeGlowRef.current = new window.Tmapv2.Polyline({
+      path,
       map,
       strokeColor: '#ffffff',
       strokeWeight: 13,
@@ -113,8 +132,8 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       zIndex: 8,
     });
 
-    routeLineRef.current = new window.google.maps.Polyline({
-      path: selectedRoute.path,
+    routeLineRef.current = new window.Tmapv2.Polyline({
+      path,
       map,
       strokeColor: '#15803d',
       strokeWeight: 6,
@@ -133,8 +152,17 @@ function SafetyMap({ user, onUserChange, onLogout }) {
 
   const fetchAllReviews = async (sort = 'latest') => {
     const res = await authFetch(`${API_URL}/reviews?sort=${sort}`);
-    if (!res.ok) throw new Error('서버 오류');
+    if (!res.ok) throw new Error('리뷰를 불러오지 못했습니다.');
     return res.json();
+  };
+
+  const getErrorMessage = async (response, fallback = '요청을 처리하지 못했습니다.') => {
+    try {
+      const data = await response.json();
+      return data?.detail?.message || data?.detail || fallback;
+    } catch {
+      return fallback;
+    }
   };
 
   const getReviewsNearPosition = async (position, sort = reviewSort) => {
@@ -160,86 +188,130 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     return scoreRes.json();
   };
 
-  const getPlaceDetailsByPlaceId = (placeId) => {
-    return new Promise((resolve) => {
-      const service = new window.google.maps.places.PlacesService(
-        document.createElement('div'),
-      );
+  const getAddressByPosition = async (position) => {
+    if (!TMAP_APP_KEY) return `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
 
-      service.getDetails(
-        {
-          placeId,
-          fields: [
-            'name',
-            'formatted_address',
-            'icon',
-            'icon_background_color',
-          ],
-        },
-        (place, status) => {
-          if (status === 'OK' && place?.name) {
-            resolve({
-              name: place.name,
-              address: place.formatted_address || '',
-              icon: place.icon || '',
-              iconBackgroundColor: place.icon_background_color || '#ffffff',
-            });
-          } else {
-            resolve({
-              name: '',
-              address: '',
-              icon: '',
-              iconBackgroundColor: '#ffffff',
-            });
-          }
-        },
-      );
+    const params = new URLSearchParams({
+      version: '1',
+      format: 'json',
+      coordType: 'WGS84GEO',
+      addressType: 'A10',
+      lon: String(position.lng),
+      lat: String(position.lat),
     });
-  };
 
-  const getAddressByPosition = (position) => {
-    return new Promise((resolve) => {
-      const geocoder = new window.google.maps.Geocoder();
-
-      geocoder.geocode({ location: position }, (results, status) => {
-        if (status === 'OK' && results?.[0]) {
-          resolve(results[0].formatted_address);
-        } else {
-          resolve(`${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`);
-        }
+    try {
+      const res = await authFetch(`https://apis.openapi.sk.com/tmap/geo/reversegeocoding?${params}`, {
+        headers: {
+          appKey: TMAP_APP_KEY,
+          accept: 'application/json',
+        },
       });
-    });
+
+      if (!res.ok) throw new Error('reverse geocoding failed');
+
+      const data = await res.json();
+      const info = data.addressInfo || {};
+      const fullAddress = info.fullAddress || [info.city_do, info.gu_gun, info.legalDong, info.roadName, info.buildingIndex]
+        .filter(Boolean)
+        .join(' ');
+
+      return fullAddress || `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
+    } catch (err) {
+      console.error(err);
+      return `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
+    }
   };
 
-  const getLocationName = async (position, placeId) => {
-    if (placeId) {
-      const detail = await getPlaceDetailsByPlaceId(placeId);
-      if (detail.name) return detail.name;
-    }
+  const formatTmapPoi = (place) => {
+    const lat = Number(place.frontLat || place.noorLat || place.lat);
+    const lng = Number(place.frontLon || place.noorLon || place.lon || place.lng);
+    const detailAddress = [
+      place.upperAddrName,
+      place.middleAddrName,
+      place.lowerAddrName,
+      place.roadName,
+      place.firstBuildNo,
+    ]
+      .filter(Boolean)
+      .join(' ');
 
-    return getAddressByPosition(position);
+    return {
+      id: place.id || `${place.name}-${place.frontLat}-${place.frontLon}`,
+      placeId: place.id,
+      name: place.name || '이름 없는 장소',
+      address: place.newAddressList?.newAddress?.[0]?.fullAddressRoad || detailAddress,
+      icon: '',
+      iconBackgroundColor: '#ffffff',
+      position: {
+        lat,
+        lng,
+      },
+    };
+  };
+
+  const getNearestPoiByPosition = async (position) => {
+    if (!TMAP_APP_KEY) return null;
+
+    const params = new URLSearchParams({
+      version: '1',
+      format: 'json',
+      page: '1',
+      count: '1',
+      centerLon: String(position.lng),
+      centerLat: String(position.lat),
+      radius: '0',
+      reqCoordType: 'WGS84GEO',
+      resCoordType: 'WGS84GEO',
+      multiPoint: 'N',
+    });
+
+    try {
+      const res = await authFetch(`https://apis.openapi.sk.com/tmap/pois/search/around?${params}`, {
+        headers: {
+          appKey: TMAP_APP_KEY,
+          accept: 'application/json',
+        },
+      });
+
+      if (!res.ok) return null;
+
+      const data = await res.json();
+      const poi = data.searchPoiInfo?.pois?.poi?.[0];
+      return poi ? formatTmapPoi(poi) : null;
+    } catch (err) {
+      console.error(err);
+      return null;
+    }
   };
 
   const getDistanceFromRoute = (path, review) => {
-    const reviewLatLng = new window.google.maps.LatLng(
-      Number(review.lat),
-      Number(review.lng),
-    );
-
     let minDistance = Infinity;
 
     path.forEach((point) => {
-      const routePoint = new window.google.maps.LatLng(point.lat, point.lng);
-      const distance =
-        window.google.maps.geometry.spherical.computeDistanceBetween(
-          routePoint,
-          reviewLatLng,
-        );
+      const distance = getDistanceMeter(point, {
+        lat: Number(review.lat),
+        lng: Number(review.lng),
+      });
 
       minDistance = Math.min(minDistance, distance);
     });
 
     return minDistance;
+  };
+
+  const getDistanceMeter = (a, b) => {
+    const earthRadius = 6371000;
+    const toRad = (value) => (Number(value) * Math.PI) / 180;
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const deltaLat = toRad(b.lat - a.lat);
+    const deltaLng = toRad(b.lng - a.lng);
+    const h =
+      Math.sin(deltaLat / 2) ** 2 +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+
+    return 2 * earthRadius * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
   };
 
   const analyzeRouteReviews = (path, allReviews) => {
@@ -251,52 +323,6 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       nearReviews,
       nearReviewCount: nearReviews.length,
     };
-  };
-
-  const requestGoogleRoutes = (origin, destination, allReviews) => {
-    return new Promise((resolve, reject) => {
-      const directionsService = new window.google.maps.DirectionsService();
-
-      directionsService.route(
-        {
-          origin: origin.position,
-          destination: destination.position,
-          travelMode: window.google.maps.TravelMode.WALKING,
-          provideRouteAlternatives: true,
-        },
-        (result, status) => {
-          if (status !== 'OK' || !result?.routes?.length) {
-            reject(new Error(`경로를 찾을 수 없습니다. (${status})`));
-            return;
-          }
-
-          const candidates = result.routes.map((route, index) => {
-            const leg = route.legs?.[0];
-            const path = (route.overview_path || []).map((point) => ({
-              lat: point.lat(),
-              lng: point.lng(),
-            }));
-            const reviewAnalysis = analyzeRouteReviews(path, allReviews);
-
-            return {
-              id: `google-${index}`,
-              provider: 'google',
-              name: route.summary || `경로 ${index + 1}`,
-              distance: leg?.distance?.text || '-',
-              duration: leg?.duration?.text || '-',
-              distanceValue: leg?.distance?.value || 0,
-              durationValue: leg?.duration?.value || 0,
-              safetyScore: null,
-              nearReviews: reviewAnalysis.nearReviews,
-              nearReviewCount: reviewAnalysis.nearReviewCount,
-              path,
-            };
-          });
-
-          resolve(candidates);
-        },
-      );
-    });
   };
 
   const requestTmapRouteByOption = async (
@@ -438,12 +464,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     try {
       const allReviews = await fetchAllReviews('latest');
 
-      const useTmap =
-        isInKorea(origin.position) && isInKorea(destination.position);
-
-      const candidates = useTmap
-        ? await requestTmapRoutes(origin, destination, allReviews)
-        : await requestGoogleRoutes(origin, destination, allReviews);
+      const candidates = await requestTmapRoutes(origin, destination, allReviews);
 
       if (candidates.length === 0) {
         setRouteError('경로를 찾을 수 없습니다.');
@@ -469,8 +490,8 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       setSheetHeight(ROUTE_SHEET_HEIGHT);
 
       if (map && sorted[0]?.path?.length) {
-        const bounds = new window.google.maps.LatLngBounds();
-        sorted[0].path.forEach((point) => bounds.extend(point));
+        const bounds = new window.Tmapv2.LatLngBounds();
+        sorted[0].path.forEach((point) => bounds.extend(toTmapLatLng(point)));
         map.fitBounds(bounds);
       }
     } catch (err) {
@@ -553,7 +574,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       setMyLocation(current);
 
       if (map) {
-        map.panTo(current);
+        map.setCenter(toTmapLatLng(current));
         map.setZoom(16);
       }
 
@@ -602,30 +623,13 @@ function SafetyMap({ user, onUserChange, onLogout }) {
   const centerPositionInVisibleMap = (position, nextSheetHeight) => {
     if (!map) return;
 
-    const projection = map.getProjection();
-    const zoom = map.getZoom() || 16;
+    const lat = Number(position.lat);
+    const lng = Number(position.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-    if (!projection) {
-      map.panTo(position);
-      return;
-    }
-
-    const scale = 2 ** zoom;
-    const latLng = new window.google.maps.LatLng(position.lat, position.lng);
-    const point = projection.fromLatLngToPoint(latLng);
-
-    if (!point) {
-      map.panTo(position);
-      return;
-    }
-
-    const centerPoint = new window.google.maps.Point(
-      point.x,
-      point.y + nextSheetHeight / 2 / scale,
-    );
-
-    const newCenter = projection.fromPointToLatLng(centerPoint);
-    map.setCenter(newCenter);
+    const nextCenter = toTmapLatLng({ lat, lng });
+    if (typeof map.setCenter === 'function') map.setCenter(nextCenter);
+    if (typeof map.panTo === 'function') map.panTo(nextCenter);
   };
 
   const focusPlaceOnMap = (position, nextSheetHeight = PLACE_SHEET_HEIGHT) => {
@@ -1016,70 +1020,71 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     setSearchError('');
     setSearchResults([]);
 
-    const service = new window.google.maps.places.PlacesService(
-      document.createElement('div'),
-    );
+    const currentCenter = getLatLngPosition(map?.getCenter?.());
+    const params = new URLSearchParams({
+      version: '1',
+      format: 'json',
+      searchKeyword: searchText.trim(),
+      count: '12',
+      radius: '20',
+      centerLat: String(currentCenter.lat),
+      centerLon: String(currentCenter.lng),
+      reqCoordType: 'WGS84GEO',
+      resCoordType: 'WGS84GEO',
+    });
 
-    const location = map?.getCenter() || new window.google.maps.LatLng(center);
-
-    service.textSearch(
-      {
-        query: searchText,
-        location,
-        radius: 20000,
+    authFetch(`https://apis.openapi.sk.com/tmap/pois?${params}`, {
+      headers: {
+        appKey: TMAP_APP_KEY,
+        accept: 'application/json',
       },
-      (results, status) => {
-        setSearchLoading(false);
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('검색 요청 실패');
+        const data = await res.json();
+        const pois = data.searchPoiInfo?.pois?.poi || [];
 
-        if (status !== window.google.maps.places.PlacesServiceStatus.OK) {
-          setSearchError(`검색 결과가 없습니다. (${status})`);
+        const formatted = pois
+          .filter((place) => {
+            const lat = Number(place.frontLat || place.noorLat || place.lat);
+            const lng = Number(place.frontLon || place.noorLon || place.lon || place.lng);
+            return Number.isFinite(lat) && Number.isFinite(lng);
+          })
+          .map(formatTmapPoi);
+
+        if (formatted.length === 0) {
+          setSearchError('검색 결과가 없습니다.');
           return;
         }
 
-        const formatted = results
-          .filter((place) => place.geometry?.location)
-          .slice(0, 12)
-          .map((place) => ({
-            id: place.place_id || `${place.name}-${Date.now()}`,
-            placeId: place.place_id,
-            name: place.name || '이름 없는 장소',
-            address: place.formatted_address || place.vicinity || '',
-            icon: place.icon || '',
-            iconBackgroundColor:
-              place.icon_background_color ||
-              place.iconBackgroundColor ||
-              '#ffffff',
-            position: {
-              lat: place.geometry.location.lat(),
-              lng: place.geometry.location.lng(),
-            },
-          }));
-
         setSearchResults(formatted);
-      },
-    );
+      })
+      .catch((err) => {
+        console.error(err);
+        setSearchError(err.message || '검색 중 오류가 발생했습니다.');
+      })
+      .finally(() => {
+        setSearchLoading(false);
+      });
   };
 
-  const handleReviewPlaceSelect = async (e) => {
-    if (!e.placeId || !e.latLng) return;
+  const handleReviewPlaceSelect = async ({ position }) => {
+    if (!position) return;
 
-    e.stop();
+    const nearestPoi = await getNearestPoiByPosition(position);
+    if (nearestPoi?.name) {
+      openPlaceDetail(nearestPoi);
+      return;
+    }
 
-    const position = {
-      lat: e.latLng.lat(),
-      lng: e.latLng.lng(),
-    };
-
-    const detail = await getPlaceDetailsByPlaceId(e.placeId);
-    const fallbackName = await getLocationName(position, e.placeId);
+    const address = await getAddressByPosition(position);
 
     openPlaceDetail({
-      id: Date.now(),
-      placeId: e.placeId,
-      name: detail.name || fallbackName,
-      address: detail.address,
-      icon: detail.icon,
-      iconBackgroundColor: detail.iconBackgroundColor,
+      id: `map-${Date.now()}`,
+      name: address || '선택한 위치',
+      address,
+      icon: '',
+      iconBackgroundColor: '#ffffff',
       position,
     });
   };
@@ -1094,6 +1099,14 @@ function SafetyMap({ user, onUserChange, onLogout }) {
 
     if (!reviewText.trim()) {
       alert('리뷰를 입력해주세요');
+      return;
+    }
+
+    const zoneCheck = await authFetch(
+      `${API_URL}/zones/by-location?lat=${selectedPlace.position.lat}&lng=${selectedPlace.position.lng}`,
+    );
+    if (!zoneCheck.ok) {
+      alert('현재 리뷰는 홍대입구역 근방 1km 안의 장소에만 저장할 수 있습니다.');
       return;
     }
 
@@ -1161,7 +1174,9 @@ function SafetyMap({ user, onUserChange, onLogout }) {
         }),
       });
 
-      if (!res.ok) throw new Error('서버 오류');
+      if (!res.ok) {
+        throw new Error(await getErrorMessage(res, '리뷰 저장 실패'));
+      }
 
       const result = await res.json();
 
@@ -1174,7 +1189,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       alert('저장됨!');
     } catch (err) {
       console.error(err);
-      alert('저장 실패');
+      alert(err.message || '저장 실패');
     } finally {
       setSafetyScoreLoading(false);
     }
@@ -1212,8 +1227,12 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     return window.visualViewport?.height || window.innerHeight;
   };
 
-  if (!isLoaded) {
-    return <div style={{ padding: 20 }}>Loading...</div>;
+  if (tmapLoadError) {
+    return <div style={{ padding: 20 }}>{tmapLoadError}</div>;
+  }
+
+  if (!tmapReady) {
+    return <div style={{ padding: 20 }}>티맵을 불러오는 중...</div>;
   }
 
   if (screen === 'mypage') {
@@ -1554,6 +1573,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
         <MapView
           setMap={setMap}
           handleReviewPlaceSelect={handleReviewPlaceSelect}
+          tmapReady={tmapReady}
           myLocation={myLocation}
           selectedPlace={selectedPlace}
           isRouteView={isRouteView}
