@@ -31,6 +31,11 @@ const REPORT_REASONS = [
   { label: '기타', description: '직접 신고 사유 입력' },
 ];
 
+const PLACE_FOCUS_ZOOM = 20;
+const BOTTOM_SHEET_VERTICAL_PADDING = 28;
+const MERCATOR_TILE_SIZE = 256;
+const MAX_MERCATOR_LAT = 85.05112878;
+
 function SafetyMap({ user, onUserChange, onLogout }) {
   const [screen, setScreen] = useState('map');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -620,14 +625,60 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     requestRoutes(origin, point);
   };
 
-  const centerPositionInVisibleMap = (position, nextSheetHeight) => {
+  const projectPositionToWorldPixel = (position, zoom) => {
+    const scale = MERCATOR_TILE_SIZE * (2 ** zoom);
+    const lat = Math.max(
+      -MAX_MERCATOR_LAT,
+      Math.min(MAX_MERCATOR_LAT, Number(position.lat)),
+    );
+    const lng = Number(position.lng);
+    const sinLat = Math.sin((lat * Math.PI) / 180);
+
+    return {
+      x: ((lng + 180) / 360) * scale,
+      y:
+        (0.5 -
+          Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) *
+        scale,
+    };
+  };
+
+  const unprojectWorldPixelToPosition = (point, zoom) => {
+    const scale = MERCATOR_TILE_SIZE * (2 ** zoom);
+    const lng = (point.x / scale) * 360 - 180;
+    const latRadians = Math.atan(Math.sinh(Math.PI * (1 - (2 * point.y) / scale)));
+
+    return {
+      lat: (latRadians * 180) / Math.PI,
+      lng,
+    };
+  };
+
+  const centerPositionInVisibleMap = (position, nextSheetHeight, zoomOverride) => {
     if (!map) return;
 
     const lat = Number(position.lat);
     const lng = Number(position.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-    const nextCenter = toTmapLatLng({ lat, lng });
+    const visibleMapHeight = getViewportHeight();
+    const hiddenMapHeight = Math.min(
+      visibleMapHeight - 80,
+      Math.max(0, Number(nextSheetHeight || 0) + BOTTOM_SHEET_VERTICAL_PADDING),
+    );
+    const zoom =
+      zoomOverride ?? (typeof map.getZoom === 'function' ? Number(map.getZoom()) : PLACE_FOCUS_ZOOM);
+    const targetZoom = Number.isFinite(zoom) ? zoom : PLACE_FOCUS_ZOOM;
+    const placePixel = projectPositionToWorldPixel({ lat, lng }, targetZoom);
+    const adjustedCenter = unprojectWorldPixelToPosition(
+      {
+        x: placePixel.x,
+        y: placePixel.y + hiddenMapHeight / 2,
+      },
+      targetZoom,
+    );
+    const nextCenter = toTmapLatLng(adjustedCenter);
+
     if (typeof map.setCenter === 'function') map.setCenter(nextCenter);
     if (typeof map.panTo === 'function') map.panTo(nextCenter);
   };
@@ -635,12 +686,32 @@ function SafetyMap({ user, onUserChange, onLogout }) {
   const focusPlaceOnMap = (position, nextSheetHeight = PLACE_SHEET_HEIGHT) => {
     if (!map) return;
 
-    map.setZoom(16);
+    map.setZoom(PLACE_FOCUS_ZOOM);
 
     window.setTimeout(() => {
-      centerPositionInVisibleMap(position, nextSheetHeight);
+      centerPositionInVisibleMap(position, nextSheetHeight, PLACE_FOCUS_ZOOM);
     }, 80);
   };
+
+  useEffect(() => {
+    if (!map || selectedPlace || isRouteView) return;
+
+    const timeoutId = window.setTimeout(() => {
+      centerPositionInVisibleMap(center, HOME_SHEET_HEIGHT);
+    }, 120);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isRouteView, map, selectedPlace]);
+
+  useEffect(() => {
+    if (!map || !selectedPlace?.position || isRouteView) return;
+
+    const timeoutId = window.setTimeout(() => {
+      focusPlaceOnMap(selectedPlace.position, PLACE_SHEET_HEIGHT);
+    }, 120);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isRouteView, map, selectedPlace]);
 
   const openPlaceDetail = async (point) => {
     setSelectedPlace(point);
@@ -1577,7 +1648,6 @@ function SafetyMap({ user, onUserChange, onLogout }) {
           myLocation={myLocation}
           selectedPlace={selectedPlace}
           isRouteView={isRouteView}
-          openPlaceDetail={openPlaceDetail}
           startPoint={startPoint}
           endPoint={endPoint}
         />

@@ -6,7 +6,7 @@ export const center = {
   lng: 126.924466,
 };
 
-export const INITIAL_MAP_ZOOM = 17;
+export const INITIAL_MAP_ZOOM = 18;
 
 export const mapStyle = {
   width: '100%',

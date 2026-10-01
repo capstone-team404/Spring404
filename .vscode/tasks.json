@@ -1,0 +1,82 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Install frontend dependencies",
+      "type": "shell",
+      "command": "npm install",
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install backend dependencies",
+      "type": "shell",
+      "command": "py -m pip install -r requirements.txt",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install AI dependencies",
+      "type": "shell",
+      "command": "py -m pip install -r requirements.txt",
+      "options": {
+        "cwd": "${workspaceFolder}/ai"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install all dependencies",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Install backend dependencies",
+        "Install AI dependencies",
+        "Install frontend dependencies"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend API",
+      "type": "shell",
+      "command": "py -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "AI API",
+      "type": "shell",
+      "command": "py -m uvicorn main:app --reload --host 0.0.0.0 --port 8001",
+      "options": {
+        "cwd": "${workspaceFolder}/ai"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Frontend",
+      "type": "shell",
+      "command": "npm run dev -- --host 0.0.0.0 --port 5173",
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Run all dev servers",
+      "dependsOrder": "parallel",
+      "dependsOn": [
+        "AI API",
+        "Backend API",
+        "Frontend"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

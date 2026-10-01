@@ -225,27 +225,12 @@ export function MapView({
   myLocation,
   selectedPlace,
   isRouteView,
-  openPlaceDetail,
   startPoint,
   endPoint,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef([]);
-
-  const moveMapTo = (position, zoom = 16) => {
-    const map = mapRef.current;
-    if (!map || !position) return;
-
-    const lat = Number(position.lat);
-    const lng = Number(position.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-    const nextCenter = toTmapLatLng({ lat, lng });
-    if (typeof map.setZoom === 'function') map.setZoom(zoom);
-    if (typeof map.setCenter === 'function') map.setCenter(nextCenter);
-    if (typeof map.panTo === 'function') map.panTo(nextCenter);
-  };
 
   useEffect(() => {
     if (!tmapReady || !containerRef.current || mapRef.current) return;
@@ -307,44 +292,9 @@ export function MapView({
     }
   }, [endPoint, isRouteView, myLocation, selectedPlace, startPoint]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !selectedPlace?.position || isRouteView) return;
-
-    moveMapTo(selectedPlace.position, 16);
-  }, [isRouteView, selectedPlace]);
-
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
       <div ref={containerRef} style={mapStyle} />
-      {selectedPlace && !isRouteView && (
-        <button
-          type="button"
-          onClick={() => openPlaceDetail(selectedPlace)}
-          style={{
-            position: 'absolute',
-            left: '50%',
-            top: '50%',
-            zIndex: 12,
-            transform: 'translate(-50%, calc(-100% - 12px))',
-            maxWidth: 240,
-            border: '1px solid #e5e7eb',
-            borderRadius: 999,
-            backgroundColor: '#ffffff',
-            color: '#111827',
-            padding: '7px 12px',
-            boxShadow: '0 4px 12px rgba(15, 23, 42, 0.18)',
-            fontSize: 12,
-            fontWeight: 900,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            cursor: 'pointer',
-          }}
-        >
-          {selectedPlace.name}
-        </button>
-      )}
     </div>
   );
 }
