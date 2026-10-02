@@ -1244,6 +1244,7 @@ export function BottomSheet({
                   좋아요 {review.like_count || 0}
                 </button>
                 <button
+                  disabled={Boolean(review.has_reported)}
                   onClick={() => reportReview(review.id)}
                   style={{
                     minWidth: 58,
@@ -1256,7 +1257,7 @@ export function BottomSheet({
                     fontSize: 0,
                   }}
                 >
-                  <span style={{ fontSize: 12 }}>🚩 신고</span>
+                  <span style={{ fontSize: 12 }}>{review.has_reported ? '신고 완료' : '🚩 신고'}</span>
                   신고
                 </button>
                 {Number(review.user_id) === Number(currentUserId) && (

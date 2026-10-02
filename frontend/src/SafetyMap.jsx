@@ -843,46 +843,6 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     }
   };
 
-  const openReportedReviewFromAdmin = async (report) => {
-    if (report?.lat == null || report?.lng == null) return;
-
-    const position = {
-      lat: Number(report.lat),
-      lng: Number(report.lng),
-    };
-
-    setScreen('map');
-    setMenuOpen(false);
-
-    await openPlaceDetail({
-      id: `reported-review-${report.review_id}`,
-      name: '신고된 리뷰 위치',
-      address: '',
-      position,
-    });
-
-    const reportedReview = {
-      id: report.review_id,
-      content: report.content,
-      zone_id: report.zone_id,
-      lat: report.lat,
-      lng: report.lng,
-      user_score: Number(report.user_score || 0),
-      ai_score: Number(report.ai_score || 0),
-      like_count: 0,
-      report_count: Number(report.report_count || 0),
-      report_status: report.report_status,
-      moderation_status: report.moderation_status,
-      photos: report.photos || [],
-      is_admin_focus: true,
-    };
-
-    setReviews((prev) => [
-      reportedReview,
-      ...prev.filter((review) => Number(review.id) !== Number(report.review_id)),
-    ]);
-    setSheetHeight(PLACE_SHEET_HEIGHT);
-  };
 
   const changeReviewSort = async (sort) => {
     setReviewSort(sort);
@@ -937,8 +897,20 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     }
   };
 
+  const refreshModerationScores = async () => {
+    const res = await authFetch(`${API_URL}/map/zones`);
+    if (!res.ok) throw new Error('안전 점수를 새로 불러오지 못했습니다.');
+    const zones = await res.json();
+    setMapZones(zones.map(zone => ({ ...zone, zone_name: `홍대 안전존 ${Number(zone.row_index || 0) + 1}-${Number(zone.col_index || 0) + 1}` })));
+    if (selectedZone?.zone_id) {
+      const updated = zones.find(zone => zone.zone_id === selectedZone.zone_id);
+      if (updated) { setSelectedZone(updated); setSelectedSafetyScore(updated.final_safety_score); }
+    }
+  };
+
   const reportReview = async (reviewId) => {
     if (!reviewId) return;
+    if (reviews.find(review => review.id === reviewId)?.has_reported) { alert('이미 신고한 리뷰입니다.'); return; }
     setReportTargetId(reviewId);
     setReportReason('');
     setReportDetail('');
@@ -949,48 +921,6 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     setReportTargetId(null);
     setReportReason('');
     setReportDetail('');
-  };
-
-  const submitReport = async () => {
-    if (!reportTargetId) return;
-    if (!reportReason) {
-      alert('신고 사유를 선택해 주세요.');
-      return;
-    }
-    if (reportReason === '기타' && !reportDetail.trim()) {
-      alert('기타 신고 사유를 입력해 주세요.');
-      return;
-    }
-
-    if (!window.confirm('이 리뷰를 신고하시겠습니까?')) return;
-
-    try {
-      const res = await authFetch(`${API_URL}/reviews/${reviewId}/report`, {
-        method: 'POST',
-      });
-
-      if (!res.ok) throw new Error('review report failed');
-
-      const result = await res.json();
-      const reportedReview = result;
-
-      setReviews((prev) =>
-        prev.map((review) =>
-          review.id === reviewId
-            ? {
-                ...review,
-                report_count: reportedReview.report_count,
-                report_status: reportedReview.report_status,
-              }
-            : review,
-        ),
-      );
-
-      alert('신고가 접수되었습니다.');
-    } catch (err) {
-      console.error(err);
-      alert('신고 처리에 실패했습니다.');
-    }
   };
 
   const submitReportWithReason = async () => {
@@ -1015,14 +945,15 @@ function SafetyMap({ user, onUserChange, onLogout }) {
         }),
       });
 
-      if (!res.ok) throw new Error('review report failed');
+      if (!res.ok) throw new Error(await getErrorMessage(res, '신고 처리에 실패했습니다.'));
 
       const reportedReview = await res.json();
       setReviews((prev) =>
-        prev.map((review) =>
+        prev.filter(review => reportedReview.moderation_status !== 'auto_hidden' || review.id !== reportTargetId).map((review) =>
           review.id === reportTargetId
             ? {
                 ...review,
+                has_reported: true,
                 report_count: reportedReview.report_count,
                 report_status: reportedReview.report_status,
               }
@@ -1033,10 +964,11 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       setReportTargetId(null);
       setReportReason('');
       setReportDetail('');
-      alert('신고가 접수되었습니다.');
+      refreshModerationScores().catch(err => alert(err.message));
+      alert(reportedReview.moderation_status === 'auto_hidden' ? '신고가 접수되어 리뷰가 자동 숨김 처리되었습니다.' : '신고가 접수되었습니다.');
     } catch (err) {
       console.error(err);
-      alert('신고 처리에 실패했습니다.');
+      alert(err.message || '신고 처리에 실패했습니다.');
     } finally {
       setReportSubmitting(false);
     }
@@ -1430,7 +1362,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     return (
       <AdminPage
         onBackToMap={() => setScreen('map')}
-        onOpenReportedReview={openReportedReviewFromAdmin}
+        onRestored={() => refreshModerationScores().catch(err => alert(err.message))}
       />
     );
   }
