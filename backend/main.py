@@ -83,7 +83,13 @@ app = FastAPI(title="HereJi Safety Map API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")],
+    allow_origins=[
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174",
+        ).split(",")
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -427,9 +433,13 @@ def rank_routes_by_safety(payload: RouteSafetyRequest, _user=Depends(require_ver
 
 
 @app.get("/reviews")
-def read_reviews(sort: str = "latest", _user=Depends(require_verified_user)):
+def read_reviews(
+    sort: str = "latest",
+    zone_id: int | None = None,
+    _user=Depends(require_verified_user),
+):
     try:
-        return get_reviews(sort)
+        return get_reviews(sort, zone_id)
     except Exception as e:
         logger.exception("Failed to read reviews: %s", e)
         raise HTTPException(status_code=500, detail="Failed to read reviews")

@@ -361,9 +361,15 @@ def _attach_analysis(rows):
 
 
 def save_review(review, analysis, user_id):
-    zone_id = calculate_zone_id(review.lat, review.lng)
-    if zone_id is None:
+    calculated_zone_id = calculate_zone_id(review.lat, review.lng)
+    if calculated_zone_id is None:
         raise ValueError("Review location is outside the Hongdae safety map area")
+
+    requested_zone_id = getattr(review, "zone_id", None)
+    if requested_zone_id is not None and int(requested_zone_id) != calculated_zone_id:
+        raise ValueError("Review zone_id does not match the selected location")
+
+    zone_id = calculated_zone_id
 
     sql = """
     INSERT INTO review (
@@ -398,16 +404,22 @@ def save_review(review, analysis, user_id):
     return zone_id, review_id
 
 
-def get_reviews(sort="latest"):
+def get_reviews(sort="latest", zone_id=None):
     order = "like_count DESC, created_at DESC" if sort == "helpful" else "created_at DESC"
+    where = "deleted_at IS NULL AND moderation_status <> 'hidden'"
+    params = []
+    if zone_id is not None:
+        where += " AND zone_id = %s"
+        params.append(int(zone_id))
+
     sql = f"""SELECT id,content,zone_id,lat,lng,user_score,ai_score,user_id,
         ai_summary,ai_tags,ai_confidence,reliability_status,reliability_reasons,
         reliability_weight,analysis_source,analyzed_at,
         like_count,report_count,report_status,created_at,updated_at
-        FROM review WHERE deleted_at IS NULL AND moderation_status <> 'hidden' ORDER BY {order}"""
+        FROM review WHERE {where} ORDER BY {order}"""
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(sql)
+            cursor.execute(sql, params)
             rows = cursor.fetchall()
             if rows:
                 ids = [row["id"] for row in rows]

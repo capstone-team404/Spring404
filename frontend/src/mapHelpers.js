@@ -6,7 +6,9 @@ export const center = {
   lng: 126.924466,
 };
 
-export const INITIAL_MAP_ZOOM = 18;
+export const INITIAL_MAP_ZOOM = 17;
+export const PLACE_FOCUS_ZOOM = 18;
+export const ZONE_FOCUS_ZOOM = 17;
 
 export const mapStyle = {
   width: '100%',
@@ -83,6 +85,28 @@ export const handlePlaceIconError = (e) => {
 
 export const toTmapLatLng = (position) => {
   return new window.Tmapv2.LatLng(Number(position.lat), Number(position.lng));
+};
+
+export const getVisibleMapCenter = (position, bottomInsetPx = 0, zoom = INITIAL_MAP_ZOOM) => {
+  const lat = Number(position.lat);
+  const lng = Number(position.lng);
+  const inset = Math.max(0, Number(bottomInsetPx) || 0);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || inset === 0) {
+    return { lat, lng };
+  }
+
+  const scale = 256 * 2 ** Number(zoom || INITIAL_MAP_ZOOM);
+  const safeSin = Math.min(Math.max(Math.sin((lat * Math.PI) / 180), -0.9999), 0.9999);
+  const pointWorldY =
+    (0.5 - Math.log((1 + safeSin) / (1 - safeSin)) / (4 * Math.PI)) * scale;
+  const centerWorldY = pointWorldY + inset / 2;
+  const mercatorN = Math.PI - (2 * Math.PI * centerWorldY) / scale;
+
+  return {
+    lat: (Math.atan(Math.sinh(mercatorN)) * 180) / Math.PI,
+    lng,
+  };
 };
 
 let tmapScriptPromise;
