@@ -1,13 +1,15 @@
-import React from 'react';
-import { GoogleMap, Marker, OverlayView } from '@react-google-maps/api';
+import React, { useEffect, useRef } from 'react';
 
 import {
   center,
+  INITIAL_MAP_ZOOM,
+  PLACE_FOCUS_ZOOM,
+  ZONE_FOCUS_ZOOM,
   mapStyle,
-  getMyLocationIcon,
-  getPinIcon,
   getSafetyColor,
+  getVisibleMapCenter,
   getUserAverage,
+  toTmapLatLng,
   handlePlaceIconError,
 } from './mapHelpers';
 
@@ -166,9 +168,9 @@ export function SearchPanel({
           {searchLoading && <p>검색 중...</p>}
           {searchError && <p style={{ color: '#ef4444' }}>{searchError}</p>}
 
-          {searchResults.map((place) => (
+          {searchResults.map((place, index) => (
             <button
-              key={place.id}
+              key={`${place.id}-${place.position?.lat}-${place.position?.lng}-${index}`}
               onClick={() => openPlaceDetail(place)}
               style={{
                 width: '100%',
@@ -222,170 +224,157 @@ export function SearchPanel({
 export function MapView({
   setMap,
   handleReviewPlaceSelect,
+  tmapReady,
+  mapZones,
+  selectedZone,
+  onZoneSelect,
+  sheetHeight,
   myLocation,
   selectedPlace,
   isRouteView,
-  openPlaceDetail,
   startPoint,
   endPoint,
 }) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const markersRef = useRef([]);
+  const zonePolygonsRef = useRef([]);
+  const onZoneSelectRef = useRef(onZoneSelect);
+
+  useEffect(() => {
+    onZoneSelectRef.current = onZoneSelect;
+  }, [onZoneSelect]);
+
+  const moveMapTo = (position, zoom = 16) => {
+    const map = mapRef.current;
+    if (!map || !position) return;
+
+    const lat = Number(position.lat);
+    const lng = Number(position.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const nextCenter = toTmapLatLng(getVisibleMapCenter({ lat, lng }, sheetHeight, zoom));
+    if (typeof map.setZoom === 'function') map.setZoom(zoom);
+    if (typeof map.setCenter === 'function') map.setCenter(nextCenter);
+    if (typeof map.panTo === 'function') map.panTo(nextCenter);
+  };
+
+  useEffect(() => {
+    if (!tmapReady || !containerRef.current || mapRef.current) return;
+
+    const mapInstance = new window.Tmapv2.Map(containerRef.current, {
+      center: toTmapLatLng(center),
+      width: '100%',
+      height: '100%',
+      zoom: INITIAL_MAP_ZOOM,
+      zoomControl: false,
+      scrollwheel: true,
+    });
+
+    mapRef.current = mapInstance;
+    setMap(mapInstance);
+
+    mapInstance.addListener('click', (event) => {
+      const latLng = event.latLng || event.latlng;
+      if (!latLng) return;
+
+      handleReviewPlaceSelect({
+        position: {
+          lat: typeof latLng.lat === 'function' ? latLng.lat() : latLng._lat ?? latLng.lat,
+          lng: typeof latLng.lng === 'function' ? latLng.lng() : latLng._lng ?? latLng.lng,
+        },
+      });
+    });
+  }, [handleReviewPlaceSelect, setMap, tmapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.Tmapv2) return;
+
+    zonePolygonsRef.current.forEach((polygon) => polygon.setMap(null));
+    zonePolygonsRef.current = [];
+
+    mapZones.forEach((zone) => {
+      const score = Number(zone.final_safety_score || 0);
+      const isSelected = Number(selectedZone?.zone_id) === Number(zone.zone_id);
+      const fillColor = getSafetyColor(score);
+      const path = [
+        { lat: zone.min_lat, lng: zone.min_lng },
+        { lat: zone.min_lat, lng: zone.max_lng },
+        { lat: zone.max_lat, lng: zone.max_lng },
+        { lat: zone.max_lat, lng: zone.min_lng },
+      ].map(toTmapLatLng);
+
+      const polygon = new window.Tmapv2.Polygon({
+        paths: path,
+        path,
+        map,
+        strokeColor: isSelected ? '#111827' : fillColor,
+        strokeWeight: isSelected ? 3 : 1,
+        strokeOpacity: isSelected ? 0.86 : 0.58,
+        fillColor,
+        fillOpacity: isSelected ? 0.24 : 0.12,
+        zIndex: isSelected ? 5 : 1,
+      });
+
+      polygon.addListener?.('click', () => {
+        onZoneSelectRef.current?.(zone);
+      });
+
+      zonePolygonsRef.current.push(polygon);
+    });
+
+    return () => {
+      zonePolygonsRef.current.forEach((polygon) => polygon.setMap(null));
+      zonePolygonsRef.current = [];
+    };
+  }, [mapZones, selectedZone]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.Tmapv2) return;
+
+    markersRef.current.forEach((marker) => marker.setMap(null));
+    markersRef.current = [];
+
+    const addMarker = (position, title) => {
+      if (!position) return;
+      const marker = new window.Tmapv2.Marker({
+        position: toTmapLatLng(position),
+        map,
+        title,
+      });
+      markersRef.current.push(marker);
+    };
+
+    addMarker(myLocation, '내 위치');
+
+    if (selectedPlace && !selectedPlace.isZone && !isRouteView) {
+      addMarker(selectedPlace.position, selectedPlace.name);
+    }
+
+    if (startPoint) {
+      addMarker(startPoint.position, `출발: ${startPoint.name}`);
+    }
+
+    if (endPoint) {
+      addMarker(endPoint.position, `도착: ${endPoint.name}`);
+    }
+  }, [endPoint, isRouteView, myLocation, selectedPlace, startPoint]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !selectedPlace?.position || isRouteView) return;
+
+    moveMapTo(
+      selectedPlace.position,
+      selectedPlace.isZone ? ZONE_FOCUS_ZOOM : PLACE_FOCUS_ZOOM,
+    );
+  }, [isRouteView, selectedPlace, sheetHeight]);
+
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
-      <GoogleMap
-        mapContainerStyle={mapStyle}
-        center={center}
-        zoom={16}
-        options={{
-          clickableIcons: true,
-          fullscreenControl: false,
-          streetViewControl: false,
-          mapTypeControl: false,
-          zoomControl: false,
-        }}
-        onLoad={(mapInstance) => setMap(mapInstance)}
-        onClick={handleReviewPlaceSelect}
-      >
-        {myLocation && (
-          <>
-            <OverlayView
-              position={myLocation}
-              mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-              getPixelPositionOffset={() => ({ x: -22, y: -22 })}
-            >
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 999,
-                  backgroundColor: 'rgba(37, 99, 235, 0.16)',
-                  boxShadow:
-                    '0 0 12px rgba(37, 99, 235, 0.55), 0 0 28px rgba(37, 99, 235, 0.28)',
-                  border: '1px solid rgba(37, 99, 235, 0.28)',
-                }}
-              />
-            </OverlayView>
-
-            <Marker
-              position={myLocation}
-              icon={getMyLocationIcon()}
-              title="내 위치"
-              zIndex={30}
-            />
-          </>
-        )}
-
-        {selectedPlace && !isRouteView && (
-          <>
-            <OverlayView
-              position={selectedPlace.position}
-              mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-              getPixelPositionOffset={() => ({ x: -22, y: -48 })}
-            >
-              <button
-                onClick={() => openPlaceDetail(selectedPlace)}
-                style={{
-                  width: 44,
-                  height: 44,
-                  border: 'none',
-                  borderRadius: '50% 50% 50% 0',
-                  backgroundColor: '#14532d',
-                  transform: 'rotate(-45deg)',
-                  boxShadow: '0 4px 12px rgba(15, 23, 42, 0.28)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
-              >
-                <span
-                  style={{
-                    width: 25,
-                    height: 25,
-                    borderRadius: 999,
-                    backgroundColor: '#ffffff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transform: 'rotate(45deg)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {selectedPlace.icon ? (
-                    <>
-                      <img
-                        src={selectedPlace.icon}
-                        alt=""
-                        onError={handlePlaceIconError}
-                        style={{ width: 17, height: 17 }}
-                      />
-                      <span style={{ display: 'none', fontSize: 14 }}>📍</span>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 14 }}>📍</span>
-                  )}
-                </span>
-              </button>
-            </OverlayView>
-
-            <OverlayView
-              position={selectedPlace.position}
-              mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-              getPixelPositionOffset={() => ({ x: 0, y: 18 })}
-            >
-              <div
-                style={{
-                  display: 'inline-block',
-                  width: 'max-content',
-                  maxWidth: 240,
-                  transform: 'translateX(-50%)',
-                  backgroundColor: '#ffffff',
-                  color: '#111827',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: 999,
-                  padding: '6px 12px',
-                  boxShadow: '0 4px 12px rgba(15, 23, 42, 0.18)',
-                  fontSize: 12,
-                  fontWeight: 900,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {selectedPlace.name}
-              </div>
-            </OverlayView>
-          </>
-        )}
-
-        {startPoint && (
-          <Marker
-            position={startPoint.position}
-            icon={getPinIcon('#2563eb')}
-            label={{
-              text: '출발',
-              color: '#ffffff',
-              fontWeight: '900',
-              fontSize: '9px',
-            }}
-            title={`출발: ${startPoint.name}`}
-          />
-        )}
-
-        {endPoint && (
-          <Marker
-            position={endPoint.position}
-            icon={getPinIcon('#ef4444')}
-            label={{
-              text: '도착',
-              color: '#ffffff',
-              fontWeight: '900',
-              fontSize: '9px',
-            }}
-            title={`도착: ${endPoint.name}`}
-          />
-        )}
-      </GoogleMap>
+      <div ref={containerRef} style={mapStyle} />
     </div>
   );
 }
@@ -473,6 +462,10 @@ export function BottomSheet({
   selectedRouteIndex,
   setSelectedRouteIndex,
   selectedPlace,
+  selectedZone,
+  zoneLoading,
+  zoneError,
+  closeZoneDetail,
   resetPlaceAndRoute,
   setPointAsStart,
   setPointAsEnd,
@@ -685,6 +678,104 @@ export function BottomSheet({
             </button>
           ))}
         </>
+      ) : selectedZone && !selectedPlace ? (
+        <>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              gap: 10,
+              marginBottom: 14,
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 21,
+                  fontWeight: 900,
+                  color: '#111827',
+                  marginBottom: 5,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Zone {selectedZone.zone_id}의 안전 정보
+              </div>
+              <div style={{ fontSize: 13, color: '#6b7280' }}>
+                Zone {selectedZone.zone_id}
+              </div>
+            </div>
+
+            <button
+              onClick={closeZoneDetail}
+              style={{
+                border: 'none',
+                backgroundColor: '#f3f4f6',
+                color: '#374151',
+                borderRadius: 999,
+                padding: '8px 11px',
+                fontWeight: 800,
+                flex: '0 0 auto',
+              }}
+            >
+              닫기
+            </button>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
+            <div style={{ ...scoreBoxStyle, textAlign: 'center' }}>
+              <div style={scoreLabelStyle}>존 안전 점수</div>
+              <div
+                style={{
+                  ...scoreValueStyle,
+                  color: getSafetyColor(Number(selectedZone.final_safety_score || 0)),
+                }}
+              >
+                {Number(selectedZone.final_safety_score || 0).toFixed(2)} / 5
+              </div>
+            </div>
+
+            <div style={{ ...scoreBoxStyle, textAlign: 'center' }}>
+              <div style={scoreLabelStyle}>공공 안전 점수</div>
+              <div style={scoreValueStyle}>
+                {Number(selectedZone.public_safety_score || 0).toFixed(2)}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 8,
+              color: '#374151',
+              fontSize: 13,
+              fontWeight: 800,
+            }}
+          >
+            <div style={{ padding: 10, borderRadius: 12, backgroundColor: '#f9fafb' }}>
+              CCTV {Number(selectedZone.cctv_count || 0)}
+            </div>
+            <div style={{ padding: 10, borderRadius: 12, backgroundColor: '#f9fafb' }}>
+              가로등 {Number(selectedZone.lamp_count || 0)}
+            </div>
+            <div style={{ padding: 10, borderRadius: 12, backgroundColor: '#f9fafb' }}>
+              편의점 {Number(selectedZone.convenience_count || 0)}
+            </div>
+            <div style={{ padding: 10, borderRadius: 12, backgroundColor: '#f9fafb' }}>
+              경찰시설 {Number(selectedZone.police_count || 0)}
+            </div>
+          </div>
+        </>
       ) : !selectedPlace ? (
         <div style={{ textAlign: 'center' }}>
           <div
@@ -717,8 +808,18 @@ export function BottomSheet({
               lineHeight: 1.4,
             }}
           >
-            내 주변 장소를 눌러 안전 점수와 리뷰를 확인해보세요
+            장소를 누르면 리뷰를, 빈 지도 영역을 누르면 존 정보를 볼 수 있어요
           </div>
+          {zoneLoading && (
+            <div style={{ marginTop: 8, fontSize: 11, color: '#9ca3af', fontWeight: 800 }}>
+              존 정보를 불러오는 중...
+            </div>
+          )}
+          {zoneError && (
+            <div style={{ marginTop: 8, fontSize: 11, color: '#ef4444', fontWeight: 800 }}>
+              {zoneError}
+            </div>
+          )}
           <button
             type="button"
             onClick={onOpenMyPage}
@@ -775,7 +876,9 @@ export function BottomSheet({
                     overflow: 'hidden',
                   }}
                 >
-                  {selectedPlace.icon ? (
+                  {selectedPlace.isZone ? (
+                    '⌖'
+                  ) : selectedPlace.icon ? (
                     <>
                       <img
                         src={selectedPlace.icon}
@@ -823,21 +926,23 @@ export function BottomSheet({
             </button>
           </div>
 
-          <div style={placeActionRowStyle}>
-            <button
-              onClick={() => setPointAsStart(selectedPlace)}
-              style={placeActionStyle('#dbeafe', '#1d4ed8')}
-            >
-              출발
-            </button>
+          {!selectedPlace.isZone && (
+            <div style={placeActionRowStyle}>
+              <button
+                onClick={() => setPointAsStart(selectedPlace)}
+                style={placeActionStyle('#dbeafe', '#1d4ed8')}
+              >
+                출발
+              </button>
 
-            <button
-              onClick={() => setPointAsEnd(selectedPlace)}
-              style={placeActionStyle('#fee2e2', '#dc2626')}
-            >
-              도착
-            </button>
-          </div>
+              <button
+                onClick={() => setPointAsEnd(selectedPlace)}
+                style={placeActionStyle('#fee2e2', '#dc2626')}
+              >
+                도착
+              </button>
+            </div>
+          )}
 
           {startPoint && (
             <div style={{ marginBottom: 12 }}>
@@ -859,7 +964,7 @@ export function BottomSheet({
             </div>
 
             <div style={{ ...scoreBoxStyle, textAlign: 'center' }}>
-              <div style={scoreLabelStyle}>안전 점수</div>
+              <div style={scoreLabelStyle}>{selectedPlace.isZone ? '지역 안전 점수' : '안전 점수'}</div>
               <div
                 style={{
                   ...scoreValueStyle,
@@ -881,7 +986,7 @@ export function BottomSheet({
               textAlign: 'center',
             }}
           >
-            리뷰
+            {selectedPlace.isZone ? '이 지역의 리뷰' : '이 지역의 리뷰'}
           </div>
 
           <div
@@ -971,7 +1076,7 @@ export function BottomSheet({
                       fontWeight: 900,
                     }}
                   >
-                    <span>AI 안전 분석</span>
+                    <span>AI 리뷰 분석</span>
                     <span>
                       {Number(review.ai_score || 0).toFixed(1)} / 5 · 신뢰도{' '}
                       {Math.round(Number(review.ai_confidence || 0) * 100)}%
@@ -1253,7 +1358,7 @@ export function BottomSheet({
             <textarea
               value={reviewText}
               onChange={(e) => setReviewText(e.target.value)}
-              placeholder="리뷰 입력"
+              placeholder="이 지역의 안전 경험을 남겨주세요"
               style={{
                 width: '100%',
                 minHeight: 78,
@@ -1421,7 +1526,7 @@ export function BottomSheet({
                 fontWeight: 900,
               }}
             >
-              {editingReviewId ? '리뷰 수정 완료' : '리뷰 저장'}
+              {editingReviewId ? '리뷰 수정 완료' : '이 지역에 리뷰 작성'}
             </button>
           </div>
         </>

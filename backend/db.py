@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
     "user": os.getenv("DB_USER", "root"),
-    "password": os.getenv("DB_PASSWORD", ""),
+    "password": os.getenv("DB_PASSWORD", "7843"),
     "database": os.getenv("DB_NAME", "safety_db"),
     "port": int(os.getenv("DB_PORT", "3306")),
     "charset": "utf8mb4",
@@ -109,6 +109,20 @@ def build_safety_zones():
                 }
             )
     return zones
+
+
+def repair_review_zone_ids(cursor):
+    cursor.execute("SELECT id, lat, lng, zone_id FROM review")
+    updates = []
+
+    for review in cursor.fetchall():
+        next_zone_id = calculate_zone_id(float(review["lat"]), float(review["lng"]))
+        if next_zone_id is not None and int(review.get("zone_id") or 0) != next_zone_id:
+            updates.append((next_zone_id, review["id"]))
+
+    if updates:
+        cursor.executemany("UPDATE review SET zone_id=%s WHERE id=%s", updates)
+        logger.info("Repaired %s review zone ids", len(updates))
 
 
 def init_tables():
@@ -296,6 +310,7 @@ def init_tables():
                 """,
                 zones,
             )
+            repair_review_zone_ids(cursor)
 
 
 def _review_photos(review):
@@ -346,9 +361,15 @@ def _attach_analysis(rows):
 
 
 def save_review(review, analysis, user_id):
-    zone_id = calculate_zone_id(review.lat, review.lng)
-    if zone_id is None:
+    calculated_zone_id = calculate_zone_id(review.lat, review.lng)
+    if calculated_zone_id is None:
         raise ValueError("Review location is outside the Hongdae safety map area")
+
+    requested_zone_id = getattr(review, "zone_id", None)
+    if requested_zone_id is not None and int(requested_zone_id) != calculated_zone_id:
+        raise ValueError("Review zone_id does not match the selected location")
+
+    zone_id = calculated_zone_id
 
     sql = """
     INSERT INTO review (
@@ -383,16 +404,22 @@ def save_review(review, analysis, user_id):
     return zone_id, review_id
 
 
-def get_reviews(sort="latest"):
+def get_reviews(sort="latest", zone_id=None):
     order = "like_count DESC, created_at DESC" if sort == "helpful" else "created_at DESC"
+    where = "deleted_at IS NULL AND moderation_status <> 'hidden'"
+    params = []
+    if zone_id is not None:
+        where += " AND zone_id = %s"
+        params.append(int(zone_id))
+
     sql = f"""SELECT id,content,zone_id,lat,lng,user_score,ai_score,user_id,
         ai_summary,ai_tags,ai_confidence,reliability_status,reliability_reasons,
         reliability_weight,analysis_source,analyzed_at,
         like_count,report_count,report_status,created_at,updated_at
-        FROM review WHERE deleted_at IS NULL AND moderation_status <> 'hidden' ORDER BY {order}"""
+        FROM review WHERE {where} ORDER BY {order}"""
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(sql)
+            cursor.execute(sql, params)
             rows = cursor.fetchall()
             if rows:
                 ids = [row["id"] for row in rows]

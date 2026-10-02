@@ -58,6 +58,7 @@ class ReviewCreate(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
     lat: float
     lng: float
+    zone_id: int | None = None
     user_score: int = Field(ge=0, le=5)
     photos: list[ReviewPhotoInput] = Field(default_factory=list, max_length=5)
     photo_data: str | None = None

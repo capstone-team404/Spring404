@@ -50,7 +50,7 @@ AI 분석을 통해 리뷰 데이터를 정량화하고, 이를 지역 안전 �
 - 분석 대상 영역을 격자 구역(`zone_id`)으로 분할
 - CCTV, 편의점, 경찰 시설, 보안등 데이터를 구역별로 집계
 - 사용자 리뷰와 공공 안전 인프라 데이터를 기반으로 구역별 안전 점수 산출
-- Google Maps 기반 안전도 시각화 제공
+- T Map 기반 안전도 시각화 제공
 
 ### 2. AI 기반 리뷰 분석
 
@@ -76,7 +76,7 @@ AI 분석을 통해 리뷰 데이터를 정량화하고, 이를 지역 안전 �
 - AI 기반 리뷰 안전도 분석
 - 공공 안전 인프라 데이터 연동 및 구역별 집계
 - 구역별 안전 점수 산출
-- Google Maps 기반 안전도 시각화
+- T Map 기반 안전도 시각화
 - 후보 경로별 안전도 평가 및 추천
 
 ### 결과
@@ -136,7 +136,7 @@ AI 분석을 통해 리뷰 데이터를 정량화하고, 이를 지역 안전 �
 ### 4. 안전 지도 생성
 
 - `/map/zones` API를 통해 구역별 안전 점수 제공
-- Google Maps에서 각 구역을 사각형 또는 히트맵 형태로 시각화
+- T Map에서 각 구역을 사각형 또는 히트맵 형태로 시각화
 - 안전 점수에 따라 위험/주의/안전 구역을 색상으로 표현
 ---
 
@@ -163,7 +163,7 @@ User
 
 | Layer | Stack |
 |---|---|
-| Frontend | React, JavaScript / HTML / CSS, Google Cloud Console, T Map API |
+| Frontend | React, JavaScript / HTML / CSS, T Map API |
 | Backend | FastAPI, Python |
 | Database | MySQL |
 | Data Processing | CSV, Python |
@@ -211,7 +211,7 @@ User
 #### frontend
 `App.jsx`
 - React 기반 메인 화면 구현
-- Google Maps 기반 지도 기능 구현
+- T Map 기반 지도 기능 구현
 
 `AppViews.jsx`
 - 화면 구성 컴포넌트 관리

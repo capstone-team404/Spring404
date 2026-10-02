@@ -1,19 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useJsApiLoader } from '@react-google-maps/api';
 
 import {
   API_URL,
   TMAP_APP_KEY,
-  LIBRARIES,
   center,
   NEAR_ROUTE_DISTANCE_METER,
   HOME_SHEET_HEIGHT,
+  PLACE_FOCUS_ZOOM,
   PLACE_SHEET_HEIGHT,
   ROUTE_SHEET_HEIGHT,
-  isInKorea,
+  ZONE_FOCUS_ZOOM,
   getAiAverage,
   formatMeter,
   formatSecond,
+  getVisibleMapCenter,
+  loadTmapScript,
+  toTmapLatLng,
 } from './mapHelpers';
 import { BottomSheet, MapView, MyLocationButton, SearchPanel } from './AppViews';
 import { authFetch } from './authApi';
@@ -35,12 +37,14 @@ const REPORT_REASONS = [
 function SafetyMap({ user, onUserChange, onLogout }) {
   const [screen, setScreen] = useState('map');
   const [menuOpen, setMenuOpen] = useState(false);
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
-    libraries: LIBRARIES,
-  });
+  const [tmapReady, setTmapReady] = useState(false);
+  const [tmapLoadError, setTmapLoadError] = useState('');
 
   const [map, setMap] = useState(null);
+  const [mapZones, setMapZones] = useState([]);
+  const [selectedZone, setSelectedZone] = useState(null);
+  const [zoneLoading, setZoneLoading] = useState(false);
+  const [zoneError, setZoneError] = useState('');
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [selectedSafetyScore, setSelectedSafetyScore] = useState(null);
   const [safetyScoreLoading, setSafetyScoreLoading] = useState(false);
@@ -84,6 +88,50 @@ function SafetyMap({ user, onUserChange, onLogout }) {
   const selectedRoute = routeCandidates[selectedRouteIndex];
   const isRouteView = routeCandidates.length > 0 || routeLoading || routeError;
 
+  const getLatLngPosition = (latLng) => {
+    if (!latLng) return center;
+
+    return {
+      lat: typeof latLng.lat === 'function' ? latLng.lat() : latLng._lat,
+      lng: typeof latLng.lng === 'function' ? latLng.lng() : latLng._lng,
+    };
+  };
+
+  useEffect(() => {
+    loadTmapScript()
+      .then(() => {
+        setTmapReady(true);
+        setTmapLoadError('');
+      })
+      .catch((err) => {
+        setTmapLoadError(err.message || '티맵 SDK를 불러오지 못했습니다.');
+      });
+  }, []);
+
+  useEffect(() => {
+    setZoneLoading(true);
+    authFetch(`${API_URL}/map/zones`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error('존 정보를 불러오지 못했습니다.');
+        const zones = await res.json();
+        setMapZones(
+          zones.map((zone) => ({
+            ...zone,
+            zone_name: `홍대 안전존 ${Number(zone.row_index || 0) + 1}-${Number(zone.col_index || 0) + 1}`,
+          })),
+        );
+        setZoneError('');
+      })
+      .catch((err) => {
+        console.error(err);
+        setMapZones([]);
+        setZoneError(err.message || '존 정보를 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        setZoneLoading(false);
+      });
+  }, []);
+
   const clearRouteLine = () => {
     if (routeLineRef.current) {
       routeLineRef.current.setMap(null);
@@ -104,8 +152,10 @@ function SafetyMap({ user, onUserChange, onLogout }) {
 
     clearRouteLine();
 
-    routeGlowRef.current = new window.google.maps.Polyline({
-      path: selectedRoute.path,
+    const path = selectedRoute.path.map(toTmapLatLng);
+
+    routeGlowRef.current = new window.Tmapv2.Polyline({
+      path,
       map,
       strokeColor: '#ffffff',
       strokeWeight: 13,
@@ -113,8 +163,8 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       zIndex: 8,
     });
 
-    routeLineRef.current = new window.google.maps.Polyline({
-      path: selectedRoute.path,
+    routeLineRef.current = new window.Tmapv2.Polyline({
+      path,
       map,
       strokeColor: '#15803d',
       strokeWeight: 6,
@@ -133,8 +183,17 @@ function SafetyMap({ user, onUserChange, onLogout }) {
 
   const fetchAllReviews = async (sort = 'latest') => {
     const res = await authFetch(`${API_URL}/reviews?sort=${sort}`);
-    if (!res.ok) throw new Error('서버 오류');
+    if (!res.ok) throw new Error('리뷰를 불러오지 못했습니다.');
     return res.json();
+  };
+
+  const getErrorMessage = async (response, fallback = '요청을 처리하지 못했습니다.') => {
+    try {
+      const data = await response.json();
+      return data?.detail?.message || data?.detail || fallback;
+    } catch {
+      return fallback;
+    }
   };
 
   const getReviewsNearPosition = async (position, sort = reviewSort) => {
@@ -145,6 +204,13 @@ function SafetyMap({ user, onUserChange, onLogout }) {
         Math.abs(Number(r.lat) - position.lat) < 0.001 &&
         Math.abs(Number(r.lng) - position.lng) < 0.001,
     );
+  };
+
+  const getReviewsByZone = async (zoneId, sort = reviewSort) => {
+    if (!zoneId) return [];
+    const res = await authFetch(`${API_URL}/reviews?sort=${sort}&zone_id=${zoneId}`);
+    if (!res.ok) throw new Error('리뷰를 불러오지 못했습니다.');
+    return res.json();
   };
 
   const fetchSafetyScoreByPosition = async (position) => {
@@ -160,86 +226,181 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     return scoreRes.json();
   };
 
-  const getPlaceDetailsByPlaceId = (placeId) => {
-    return new Promise((resolve) => {
-      const service = new window.google.maps.places.PlacesService(
-        document.createElement('div'),
-      );
-
-      service.getDetails(
-        {
-          placeId,
-          fields: [
-            'name',
-            'formatted_address',
-            'icon',
-            'icon_background_color',
-          ],
-        },
-        (place, status) => {
-          if (status === 'OK' && place?.name) {
-            resolve({
-              name: place.name,
-              address: place.formatted_address || '',
-              icon: place.icon || '',
-              iconBackgroundColor: place.icon_background_color || '#ffffff',
-            });
-          } else {
-            resolve({
-              name: '',
-              address: '',
-              icon: '',
-              iconBackgroundColor: '#ffffff',
-            });
-          }
-        },
-      );
-    });
+  const fetchSafetyScoreByZone = async (zoneId) => {
+    if (!zoneId) return null;
+    const scoreRes = await authFetch(`${API_URL}/safety-score/${zoneId}`);
+    if (!scoreRes.ok) return null;
+    return scoreRes.json();
   };
 
-  const getAddressByPosition = (position) => {
-    return new Promise((resolve) => {
-      const geocoder = new window.google.maps.Geocoder();
+  const getZoneCenter = (zone) => {
+    return {
+      lat: (Number(zone.min_lat) + Number(zone.max_lat)) / 2,
+      lng: (Number(zone.min_lng) + Number(zone.max_lng)) / 2,
+    };
+  };
 
-      geocoder.geocode({ location: position }, (results, status) => {
-        if (status === 'OK' && results?.[0]) {
-          resolve(results[0].formatted_address);
-        } else {
-          resolve(`${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`);
-        }
+  const normalizeZone = (zone) => {
+    if (!zone) return null;
+
+    const knownZone = mapZones.find(
+      (item) => Number(item.zone_id) === Number(zone.zone_id),
+    );
+
+    return knownZone || zone;
+  };
+
+  const fetchZoneByPosition = async (position) => {
+    const localZone = findZoneByPosition(position);
+    if (localZone) return localZone;
+
+    const zoneRes = await authFetch(
+      `${API_URL}/zones/by-location?lat=${position.lat}&lng=${position.lng}`,
+    );
+    if (!zoneRes.ok) return null;
+
+    return normalizeZone(await zoneRes.json());
+  };
+
+  const getAddressByPosition = async (position) => {
+    if (!TMAP_APP_KEY) return `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
+
+    const params = new URLSearchParams({
+      version: '1',
+      format: 'json',
+      coordType: 'WGS84GEO',
+      addressType: 'A10',
+      lon: String(position.lng),
+      lat: String(position.lat),
+    });
+
+    try {
+      const res = await authFetch(`https://apis.openapi.sk.com/tmap/geo/reversegeocoding?${params}`, {
+        headers: {
+          appKey: TMAP_APP_KEY,
+          accept: 'application/json',
+        },
       });
-    });
+
+      if (!res.ok) throw new Error('reverse geocoding failed');
+
+      const data = await res.json();
+      const info = data.addressInfo || {};
+      const fullAddress = info.fullAddress || [info.city_do, info.gu_gun, info.legalDong, info.roadName, info.buildingIndex]
+        .filter(Boolean)
+        .join(' ');
+
+      return fullAddress || `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
+    } catch (err) {
+      console.error(err);
+      return `${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`;
+    }
   };
 
-  const getLocationName = async (position, placeId) => {
-    if (placeId) {
-      const detail = await getPlaceDetailsByPlaceId(placeId);
-      if (detail.name) return detail.name;
-    }
+  const formatTmapPoi = (place) => {
+    const lat = Number(place.frontLat || place.noorLat || place.lat);
+    const lng = Number(place.frontLon || place.noorLon || place.lon || place.lng);
+    const detailAddress = [
+      place.upperAddrName,
+      place.middleAddrName,
+      place.lowerAddrName,
+      place.roadName,
+      place.firstBuildNo,
+    ]
+      .filter(Boolean)
+      .join(' ');
 
-    return getAddressByPosition(position);
+    return {
+      id: `${place.id || place.name || 'poi'}-${lat}-${lng}`,
+      placeId: place.id,
+      name: place.name || '이름 없는 장소',
+      address: place.newAddressList?.newAddress?.[0]?.fullAddressRoad || detailAddress,
+      icon: '',
+      iconBackgroundColor: '#ffffff',
+      position: {
+        lat,
+        lng,
+      },
+    };
+  };
+
+  const getNearestPoiByPosition = async (position) => {
+    if (!TMAP_APP_KEY) return null;
+
+    const params = new URLSearchParams({
+      version: '1',
+      format: 'json',
+      page: '1',
+      count: '10',
+      centerLon: String(position.lng),
+      centerLat: String(position.lat),
+      radius: '30',
+      reqCoordType: 'WGS84GEO',
+      resCoordType: 'WGS84GEO',
+      multiPoint: 'N',
+    });
+
+    try {
+      const res = await authFetch(`https://apis.openapi.sk.com/tmap/pois/search/around?${params}`, {
+        headers: {
+          appKey: TMAP_APP_KEY,
+          accept: 'application/json',
+        },
+      });
+
+      if (!res.ok) return null;
+
+      const data = await res.json();
+      const pois = data.searchPoiInfo?.pois?.poi || [];
+      const nearestPois = pois
+        .map(formatTmapPoi)
+        .filter((poi) => {
+          return (
+            Number.isFinite(poi.position.lat) &&
+            Number.isFinite(poi.position.lng)
+          );
+        })
+        .map((poi) => ({
+          ...poi,
+          distanceFromClick: getDistanceMeter(position, poi.position),
+        }))
+        .filter((poi) => poi.distanceFromClick <= 30)
+        .sort((a, b) => a.distanceFromClick - b.distanceFromClick);
+
+      return nearestPois[0] || null;
+    } catch (err) {
+      console.error(err);
+      return null;
+    }
   };
 
   const getDistanceFromRoute = (path, review) => {
-    const reviewLatLng = new window.google.maps.LatLng(
-      Number(review.lat),
-      Number(review.lng),
-    );
-
     let minDistance = Infinity;
 
     path.forEach((point) => {
-      const routePoint = new window.google.maps.LatLng(point.lat, point.lng);
-      const distance =
-        window.google.maps.geometry.spherical.computeDistanceBetween(
-          routePoint,
-          reviewLatLng,
-        );
+      const distance = getDistanceMeter(point, {
+        lat: Number(review.lat),
+        lng: Number(review.lng),
+      });
 
       minDistance = Math.min(minDistance, distance);
     });
 
     return minDistance;
+  };
+
+  const getDistanceMeter = (a, b) => {
+    const earthRadius = 6371000;
+    const toRad = (value) => (Number(value) * Math.PI) / 180;
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const deltaLat = toRad(b.lat - a.lat);
+    const deltaLng = toRad(b.lng - a.lng);
+    const h =
+      Math.sin(deltaLat / 2) ** 2 +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+
+    return 2 * earthRadius * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
   };
 
   const analyzeRouteReviews = (path, allReviews) => {
@@ -251,52 +412,6 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       nearReviews,
       nearReviewCount: nearReviews.length,
     };
-  };
-
-  const requestGoogleRoutes = (origin, destination, allReviews) => {
-    return new Promise((resolve, reject) => {
-      const directionsService = new window.google.maps.DirectionsService();
-
-      directionsService.route(
-        {
-          origin: origin.position,
-          destination: destination.position,
-          travelMode: window.google.maps.TravelMode.WALKING,
-          provideRouteAlternatives: true,
-        },
-        (result, status) => {
-          if (status !== 'OK' || !result?.routes?.length) {
-            reject(new Error(`경로를 찾을 수 없습니다. (${status})`));
-            return;
-          }
-
-          const candidates = result.routes.map((route, index) => {
-            const leg = route.legs?.[0];
-            const path = (route.overview_path || []).map((point) => ({
-              lat: point.lat(),
-              lng: point.lng(),
-            }));
-            const reviewAnalysis = analyzeRouteReviews(path, allReviews);
-
-            return {
-              id: `google-${index}`,
-              provider: 'google',
-              name: route.summary || `경로 ${index + 1}`,
-              distance: leg?.distance?.text || '-',
-              duration: leg?.duration?.text || '-',
-              distanceValue: leg?.distance?.value || 0,
-              durationValue: leg?.duration?.value || 0,
-              safetyScore: null,
-              nearReviews: reviewAnalysis.nearReviews,
-              nearReviewCount: reviewAnalysis.nearReviewCount,
-              path,
-            };
-          });
-
-          resolve(candidates);
-        },
-      );
-    });
   };
 
   const requestTmapRouteByOption = async (
@@ -438,12 +553,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     try {
       const allReviews = await fetchAllReviews('latest');
 
-      const useTmap =
-        isInKorea(origin.position) && isInKorea(destination.position);
-
-      const candidates = useTmap
-        ? await requestTmapRoutes(origin, destination, allReviews)
-        : await requestGoogleRoutes(origin, destination, allReviews);
+      const candidates = await requestTmapRoutes(origin, destination, allReviews);
 
       if (candidates.length === 0) {
         setRouteError('경로를 찾을 수 없습니다.');
@@ -469,8 +579,8 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       setSheetHeight(ROUTE_SHEET_HEIGHT);
 
       if (map && sorted[0]?.path?.length) {
-        const bounds = new window.google.maps.LatLngBounds();
-        sorted[0].path.forEach((point) => bounds.extend(point));
+        const bounds = new window.Tmapv2.LatLngBounds();
+        sorted[0].path.forEach((point) => bounds.extend(toTmapLatLng(point)));
         map.fitBounds(bounds);
       }
     } catch (err) {
@@ -509,6 +619,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
   const resetPlaceAndRoute = () => {
     resetRoute();
     setSelectedPlace(null);
+    setSelectedZone(null);
     setSelectedSafetyScore(null);
     setSafetyScoreLoading(false);
     setReviews([]);
@@ -517,6 +628,75 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     setReviewPhotos([]);
     setEditingReviewId(null);
     setSheetHeight(HOME_SHEET_HEIGHT);
+  };
+
+  const closeZoneDetail = () => {
+    setSelectedZone(null);
+    setSheetHeight(HOME_SHEET_HEIGHT);
+  };
+
+  const findZoneByPosition = (position) => {
+    if (!position) return null;
+
+    const lat = Number(position.lat);
+    const lng = Number(position.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+    return (
+      mapZones.find(
+        (zone) =>
+          Number(zone.min_lat) <= lat &&
+          lat < Number(zone.max_lat) &&
+          Number(zone.min_lng) <= lng &&
+          lng < Number(zone.max_lng),
+      ) || null
+    );
+  };
+
+  const openZoneDetail = async (zone, position) => {
+    if (!zone) return;
+
+    const nextZone = normalizeZone(zone);
+    const zonePosition = position || getZoneCenter(nextZone);
+
+    resetRoute();
+    setSelectedPlace({
+      id: `zone-${nextZone.zone_id}`,
+      name: `Zone ${nextZone.zone_id}의 안전 정보`,
+      address: '선택한 지도 구역',
+      icon: '',
+      iconBackgroundColor: '#ffffff',
+      position: zonePosition,
+      zone_id: nextZone.zone_id,
+      isZone: true,
+    });
+    setSelectedSafetyScore(null);
+    setSafetyScoreLoading(true);
+    setReviews([]);
+    setReviewText('');
+    setReviewRating(0);
+    setReviewPhotos([]);
+    setEditingReviewId(null);
+    setSearchScreenOpen(false);
+    setSelectedZone(nextZone);
+    setSheetHeight(PLACE_SHEET_HEIGHT);
+
+    focusPlaceOnMap(zonePosition, PLACE_SHEET_HEIGHT, ZONE_FOCUS_ZOOM);
+
+    try {
+      const [filtered, safetyScore] = await Promise.all([
+        getReviewsByZone(nextZone.zone_id, reviewSort),
+        fetchSafetyScoreByZone(nextZone.zone_id),
+      ]);
+      setReviews(filtered);
+      setSelectedSafetyScore(safetyScore?.final_safety_score ?? nextZone.final_safety_score ?? null);
+    } catch (err) {
+      console.error(err);
+      setReviews([]);
+      setSelectedSafetyScore(nextZone.final_safety_score ?? null);
+    } finally {
+      setSafetyScoreLoading(false);
+    }
   };
 
   const getCurrentPosition = () => {
@@ -553,7 +733,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       setMyLocation(current);
 
       if (map) {
-        map.panTo(current);
+        map.setCenter(toTmapLatLng(current));
         map.setZoom(16);
       }
 
@@ -602,36 +782,24 @@ function SafetyMap({ user, onUserChange, onLogout }) {
   const centerPositionInVisibleMap = (position, nextSheetHeight) => {
     if (!map) return;
 
-    const projection = map.getProjection();
-    const zoom = map.getZoom() || 16;
+    const lat = Number(position.lat);
+    const lng = Number(position.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-    if (!projection) {
-      map.panTo(position);
-      return;
-    }
-
-    const scale = 2 ** zoom;
-    const latLng = new window.google.maps.LatLng(position.lat, position.lng);
-    const point = projection.fromLatLngToPoint(latLng);
-
-    if (!point) {
-      map.panTo(position);
-      return;
-    }
-
-    const centerPoint = new window.google.maps.Point(
-      point.x,
-      point.y + nextSheetHeight / 2 / scale,
-    );
-
-    const newCenter = projection.fromPointToLatLng(centerPoint);
-    map.setCenter(newCenter);
+    const zoom = typeof map.getZoom === 'function' ? map.getZoom() : PLACE_FOCUS_ZOOM;
+    const nextCenter = toTmapLatLng(getVisibleMapCenter({ lat, lng }, nextSheetHeight, zoom));
+    if (typeof map.setCenter === 'function') map.setCenter(nextCenter);
+    if (typeof map.panTo === 'function') map.panTo(nextCenter);
   };
 
-  const focusPlaceOnMap = (position, nextSheetHeight = PLACE_SHEET_HEIGHT) => {
+  const focusPlaceOnMap = (
+    position,
+    nextSheetHeight = PLACE_SHEET_HEIGHT,
+    zoom = PLACE_FOCUS_ZOOM,
+  ) => {
     if (!map) return;
 
-    map.setZoom(16);
+    map.setZoom(zoom);
 
     window.setTimeout(() => {
       centerPositionInVisibleMap(position, nextSheetHeight);
@@ -639,7 +807,15 @@ function SafetyMap({ user, onUserChange, onLogout }) {
   };
 
   const openPlaceDetail = async (point) => {
-    setSelectedPlace(point);
+    const zone = await fetchZoneByPosition(point.position);
+    if (!zone) {
+      alert('현재 리뷰는 홍대입구역 근방 1km 안의 지역에만 작성할 수 있습니다.');
+      return;
+    }
+
+    const nextZone = normalizeZone(zone);
+    setSelectedZone(nextZone);
+    setSelectedPlace({ ...point, zone_id: nextZone.zone_id });
     setSelectedSafetyScore(null);
     setSafetyScoreLoading(true);
     setReviewText('');
@@ -652,11 +828,12 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     focusPlaceOnMap(point.position, PLACE_SHEET_HEIGHT);
 
     try {
-      const filtered = await getReviewsNearPosition(point.position, reviewSort);
+      const [filtered, safetyScore] = await Promise.all([
+        getReviewsByZone(nextZone.zone_id, reviewSort),
+        fetchSafetyScoreByZone(nextZone.zone_id),
+      ]);
       setReviews(filtered);
-
-      const safetyScore = await fetchSafetyScoreByPosition(point.position);
-      setSelectedSafetyScore(safetyScore?.final_safety_score ?? null);
+      setSelectedSafetyScore(safetyScore?.final_safety_score ?? nextZone.final_safety_score ?? null);
     } catch (err) {
       console.error(err);
       setReviews([]);
@@ -710,11 +887,12 @@ function SafetyMap({ user, onUserChange, onLogout }) {
   const changeReviewSort = async (sort) => {
     setReviewSort(sort);
 
-    if (!selectedPlace) return;
+    const zoneId = selectedZone?.zone_id || selectedPlace?.zone_id;
+    if (!zoneId) return;
 
     setSafetyScoreLoading(true);
     try {
-      const filtered = await getReviewsNearPosition(selectedPlace.position, sort);
+      const filtered = await getReviewsByZone(zoneId, sort);
       setReviews(filtered);
     } catch (err) {
       console.error(err);
@@ -996,8 +1174,18 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       if (!res.ok) throw new Error('review delete failed');
 
       await res.json();
-      setReviews((prev) => prev.filter((review) => review.id !== reviewId));
-      setSelectedSafetyScore(null);
+      const zoneId = selectedZone?.zone_id || selectedPlace?.zone_id;
+      if (zoneId) {
+        const [filtered, safetyScore] = await Promise.all([
+          getReviewsByZone(zoneId, reviewSort),
+          fetchSafetyScoreByZone(zoneId),
+        ]);
+        setReviews(filtered);
+        setSelectedSafetyScore(safetyScore?.final_safety_score ?? null);
+      } else {
+        setReviews((prev) => prev.filter((review) => review.id !== reviewId));
+        setSelectedSafetyScore(null);
+      }
       alert('리뷰가 삭제되었습니다.');
     } catch (err) {
       console.error(err);
@@ -1016,76 +1204,69 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     setSearchError('');
     setSearchResults([]);
 
-    const service = new window.google.maps.places.PlacesService(
-      document.createElement('div'),
-    );
+    const currentCenter = getLatLngPosition(map?.getCenter?.());
+    const params = new URLSearchParams({
+      version: '1',
+      format: 'json',
+      searchKeyword: searchText.trim(),
+      count: '12',
+      radius: '20',
+      centerLat: String(currentCenter.lat),
+      centerLon: String(currentCenter.lng),
+      reqCoordType: 'WGS84GEO',
+      resCoordType: 'WGS84GEO',
+    });
 
-    const location = map?.getCenter() || new window.google.maps.LatLng(center);
-
-    service.textSearch(
-      {
-        query: searchText,
-        location,
-        radius: 20000,
+    authFetch(`https://apis.openapi.sk.com/tmap/pois?${params}`, {
+      headers: {
+        appKey: TMAP_APP_KEY,
+        accept: 'application/json',
       },
-      (results, status) => {
-        setSearchLoading(false);
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('검색 요청 실패');
+        const data = await res.json();
+        const pois = data.searchPoiInfo?.pois?.poi || [];
 
-        if (status !== window.google.maps.places.PlacesServiceStatus.OK) {
-          setSearchError(`검색 결과가 없습니다. (${status})`);
+        const formatted = pois
+          .filter((place) => {
+            const lat = Number(place.frontLat || place.noorLat || place.lat);
+            const lng = Number(place.frontLon || place.noorLon || place.lon || place.lng);
+            return Number.isFinite(lat) && Number.isFinite(lng);
+          })
+          .map(formatTmapPoi);
+
+        if (formatted.length === 0) {
+          setSearchError('검색 결과가 없습니다.');
           return;
         }
 
-        const formatted = results
-          .filter((place) => place.geometry?.location)
-          .slice(0, 12)
-          .map((place) => ({
-            id: place.place_id || `${place.name}-${Date.now()}`,
-            placeId: place.place_id,
-            name: place.name || '이름 없는 장소',
-            address: place.formatted_address || place.vicinity || '',
-            icon: place.icon || '',
-            iconBackgroundColor:
-              place.icon_background_color ||
-              place.iconBackgroundColor ||
-              '#ffffff',
-            position: {
-              lat: place.geometry.location.lat(),
-              lng: place.geometry.location.lng(),
-            },
-          }));
-
         setSearchResults(formatted);
-      },
-    );
+      })
+      .catch((err) => {
+        console.error(err);
+        setSearchError(err.message || '검색 중 오류가 발생했습니다.');
+      })
+      .finally(() => {
+        setSearchLoading(false);
+      });
   };
 
-  const handleReviewPlaceSelect = async (e) => {
-    if (!e.placeId || !e.latLng) return;
+  const handleReviewPlaceSelect = async ({ position }) => {
+    if (!position) return;
 
-    e.stop();
+    const zone = await fetchZoneByPosition(position);
+    if (zone) {
+      openZoneDetail(zone);
+      return;
+    }
 
-    const position = {
-      lat: e.latLng.lat(),
-      lng: e.latLng.lng(),
-    };
-
-    const detail = await getPlaceDetailsByPlaceId(e.placeId);
-    const fallbackName = await getLocationName(position, e.placeId);
-
-    openPlaceDetail({
-      id: Date.now(),
-      placeId: e.placeId,
-      name: detail.name || fallbackName,
-      address: detail.address,
-      icon: detail.icon,
-      iconBackgroundColor: detail.iconBackgroundColor,
-      position,
-    });
+    resetPlaceAndRoute();
   };
 
   const saveReview = async () => {
-    if (!selectedPlace) return;
+    const zoneId = selectedZone?.zone_id || selectedPlace?.zone_id;
+    if (!selectedPlace || !zoneId) return;
 
     if (reviewRating === 0) {
       alert('별점을 선택해주세요');
@@ -1142,6 +1323,16 @@ function SafetyMap({ user, onUserChange, onLogout }) {
         setReviewPhotos([]);
         setEditingReviewId(null);
 
+        const zoneId = selectedZone?.zone_id || selectedPlace?.zone_id;
+        if (zoneId) {
+          const [filtered, safetyScore] = await Promise.all([
+            getReviewsByZone(zoneId, reviewSort),
+            fetchSafetyScoreByZone(zoneId),
+          ]);
+          setReviews(filtered);
+          setSelectedSafetyScore(safetyScore?.final_safety_score ?? null);
+        }
+
         alert('수정됨!');
         return;
       }
@@ -1157,15 +1348,19 @@ function SafetyMap({ user, onUserChange, onLogout }) {
           photos: reviewPhotos,
           lat: selectedPlace.position.lat,
           lng: selectedPlace.position.lng,
+          zone_id: zoneId,
           user_score: reviewRating,
         }),
       });
 
-      if (!res.ok) throw new Error('서버 오류');
+      if (!res.ok) {
+        throw new Error(await getErrorMessage(res, '리뷰 저장 실패'));
+      }
 
       const result = await res.json();
 
-      setReviews((prev) => [...prev, result.data]);
+      const refreshedReviews = await getReviewsByZone(zoneId, reviewSort);
+      setReviews(refreshedReviews);
       setSelectedSafetyScore(result.data.final_safety_score ?? null);
       setReviewText('');
       setReviewRating(0);
@@ -1174,7 +1369,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       alert('저장됨!');
     } catch (err) {
       console.error(err);
-      alert('저장 실패');
+      alert(err.message || '저장 실패');
     } finally {
       setSafetyScoreLoading(false);
     }
@@ -1212,8 +1407,12 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     return window.visualViewport?.height || window.innerHeight;
   };
 
-  if (!isLoaded) {
-    return <div style={{ padding: 20 }}>Loading...</div>;
+  if (tmapLoadError) {
+    return <div style={{ padding: 20 }}>{tmapLoadError}</div>;
+  }
+
+  if (!tmapReady) {
+    return <div style={{ padding: 20 }}>티맵을 불러오는 중...</div>;
   }
 
   if (screen === 'mypage') {
@@ -1554,10 +1753,14 @@ function SafetyMap({ user, onUserChange, onLogout }) {
         <MapView
           setMap={setMap}
           handleReviewPlaceSelect={handleReviewPlaceSelect}
+          tmapReady={tmapReady}
+          mapZones={mapZones}
+          selectedZone={selectedZone}
+          onZoneSelect={openZoneDetail}
+          sheetHeight={sheetHeight}
           myLocation={myLocation}
           selectedPlace={selectedPlace}
           isRouteView={isRouteView}
-          openPlaceDetail={openPlaceDetail}
           startPoint={startPoint}
           endPoint={endPoint}
         />
@@ -1581,6 +1784,10 @@ function SafetyMap({ user, onUserChange, onLogout }) {
           selectedRouteIndex={selectedRouteIndex}
           setSelectedRouteIndex={setSelectedRouteIndex}
           selectedPlace={selectedPlace}
+          selectedZone={selectedZone}
+          zoneLoading={zoneLoading}
+          zoneError={zoneError}
+          closeZoneDetail={closeZoneDetail}
           resetPlaceAndRoute={resetPlaceAndRoute}
           setPointAsStart={setPointAsStart}
           setPointAsEnd={setPointAsEnd}
