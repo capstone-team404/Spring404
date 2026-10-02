@@ -33,13 +33,9 @@ export const getMyReviews = () => request('/me/reviews');
 export const getMyLikedReviews = () => request('/me/liked-reviews');
 export const getMyReports = () => request('/me/reports');
 export const deleteAccount = () => request('/me/account', json('DELETE', { confirm: true }));
-export const getAdminReports = status => request(`/admin/reports?status=${encodeURIComponent(status || 'pending')}`);
-export const updateAdminReportStatus = (reviewId, reporterUserId, status) =>
-  request(`/admin/reports/${reviewId}/${reporterUserId}`, json('PATCH', { status }));
-export const hideAdminReview = (reviewId, reason) =>
-  request(`/admin/reviews/${reviewId}/hide`, json('PATCH', { reason }));
-export const deleteAdminReview = (reviewId, reason) =>
-  request(`/admin/reviews/${reviewId}`, json('DELETE', { reason }));
+export const getAdminReports = () => request('/admin/reports');
+export const setAdminReviewChecked = (reviewId, checked) =>
+  request(`/admin/reviews/${reviewId}/checked`, json('PATCH', { checked }));
 export const restoreAdminReview = reviewId =>
   request(`/admin/reviews/${reviewId}/restore`, { method: 'PATCH' });
 export async function logout() { try { await request('/auth/logout', {method:'POST'}); } finally { clearToken(); } }

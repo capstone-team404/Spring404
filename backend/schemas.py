@@ -76,14 +76,6 @@ class ReviewReportRequest(BaseModel):
     detail: str | None = Field(default=None, max_length=1000)
 
 
-class AdminReportStatusRequest(BaseModel):
-    status: str = Field(pattern="^(pending|resolved|rejected)$")
-
-
-class AdminReviewModerationRequest(BaseModel):
-    reason: str | None = Field(default=None, max_length=1000)
-
-
 class PublicSafetyZoneCreate(BaseModel):
     zone_id: int
     cctv_count: int = Field(default=0, ge=0)
@@ -110,3 +102,7 @@ class RouteCandidate(BaseModel):
 
 class RouteSafetyRequest(BaseModel):
     routes: list[RouteCandidate]
+
+
+class AdminReviewCheckedRequest(BaseModel):
+    checked: bool
