@@ -29,14 +29,13 @@ from db import (
     like_review,
     report_review,
     save_review,
-    hide_review_by_admin,
     restore_review_by_admin,
-    update_report_status,
+    set_admin_checked,
     update_review,
     upsert_public_safety_zone,
 )
 from auth import delete_user_account, login_user, logout_token, require_admin, require_user, require_verified_user, signup_user, update_user_profile, verify_gender
-from schemas import AccountDeleteRequest, AdminReportStatusRequest, AdminReviewModerationRequest, GenderVerificationRequest, LoginRequest, ProfileUpdateRequest, PublicSafetyZoneCreate, ReviewCreate, ReviewReportRequest, ReviewUpdate, RouteSafetyRequest, SignupRequest
+from schemas import AccountDeleteRequest, AdminReviewCheckedRequest, GenderVerificationRequest, LoginRequest, ProfileUpdateRequest, PublicSafetyZoneCreate, ReviewCreate, ReviewReportRequest, ReviewUpdate, RouteSafetyRequest, SignupRequest
 from review_analysis import build_analysis
 
 logging.basicConfig(level=logging.INFO)
@@ -172,49 +171,15 @@ def delete_my_account(payload: AccountDeleteRequest, user=Depends(require_user))
 
 
 @app.get("/admin/reports")
-def read_admin_reports(status: str = "pending", _admin=Depends(require_admin)):
-    return {"reports": get_admin_reported_reviews(status)}
+def read_admin_reports(_admin=Depends(require_admin)):
+    return {"reports": get_admin_reported_reviews()}
 
 
-@app.patch("/admin/reports/{review_id}/{reporter_user_id}")
-def moderate_report(
-    review_id: int,
-    reporter_user_id: int,
-    payload: AdminReportStatusRequest,
-    admin=Depends(require_admin),
-):
+@app.patch("/admin/reviews/{review_id}/checked")
+def check_admin_review(review_id: int, payload: AdminReviewCheckedRequest, _admin=Depends(require_admin)):
     try:
-        update_report_status(review_id, reporter_user_id, payload.status, admin["id"])
+        set_admin_checked(review_id, payload.checked)
         return {"message": "updated"}
-    except LookupError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.patch("/admin/reviews/{review_id}/hide")
-def hide_admin_review(
-    review_id: int,
-    payload: AdminReviewModerationRequest,
-    admin=Depends(require_admin),
-):
-    try:
-        hide_review_by_admin(review_id, admin["id"], payload.reason)
-        return {"message": "hidden"}
-    except LookupError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@app.delete("/admin/reviews/{review_id}")
-def delete_admin_review(
-    review_id: int,
-    payload: AdminReviewModerationRequest,
-    admin=Depends(require_admin),
-):
-    """MVP 관리자 삭제는 복구 가능한 soft delete로 처리한다."""
-    try:
-        hide_review_by_admin(review_id, admin["id"], payload.reason or "관리자 검토 후 삭제")
-        return {"message": "deleted", "recoverable": True}
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -439,7 +404,7 @@ def read_reviews(
     _user=Depends(require_verified_user),
 ):
     try:
-        return get_reviews(sort, zone_id)
+        return get_reviews(sort, zone_id, _user["id"])
     except Exception as e:
         logger.exception("Failed to read reviews: %s", e)
         raise HTTPException(status_code=500, detail="Failed to read reviews")
@@ -478,6 +443,8 @@ def like(review_id: int, user=Depends(require_verified_user)):
 def report(review_id: int, payload: ReviewReportRequest, user=Depends(require_verified_user)):
     try:
         return report_review(review_id, user["id"], payload.reason, payload.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
