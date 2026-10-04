@@ -2,6 +2,7 @@ import logging
 import math
 import os
 import json
+import ssl
 from contextlib import contextmanager
 
 import pymysql
@@ -24,6 +25,13 @@ DB_CONFIG = {
     "charset": "utf8mb4",
     "cursorclass": pymysql.cursors.DictCursor,
 }
+
+# TLS is required by hosted databases such as TiDB Cloud.
+if os.getenv("DB_SSL", "false").lower() in {"true", "1", "yes"}:
+    DB_CONFIG["ssl"] = ssl.create_default_context(cafile=os.getenv("DB_SSL_CA") or None)
+DB_CONFIG["connect_timeout"] = 10
+DB_CONFIG["read_timeout"] = 30
+DB_CONFIG["write_timeout"] = 30
 
 REVIEW_WEIGHT = float(os.getenv("REVIEW_WEIGHT", "0.6"))
 PUBLIC_WEIGHT = float(os.getenv("PUBLIC_WEIGHT", "0.4"))

@@ -8,6 +8,8 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.10"
       - key: OPENAI_API_KEY
         sync: false
 
@@ -20,16 +22,14 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: AI_HOST
-        fromService:
-          name: hereji-ai
-          type: web
-          property: host
-      - key: AI_PORT
-        fromService:
-          name: hereji-ai
-          type: web
-          property: port
+      - key: PYTHON_VERSION
+        value: "3.12.10"
+      - key: AI_BASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: DB_SSL
+        value: "true"
       - key: DB_HOST
         sync: false
       - key: DB_USER
