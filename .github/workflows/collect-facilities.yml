@@ -1,6 +1,10 @@
 name: Collect safety facilities
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/data/security-lights-input.csv'
   workflow_dispatch:
     inputs:
       source:
@@ -27,7 +31,7 @@ concurrency:
 jobs:
   collect:
     # Enable after configuring credentials and the security-light source.
-    if: github.event_name == 'workflow_dispatch' || vars.FACILITY_COLLECTION_ENABLED == 'true'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || vars.FACILITY_COLLECTION_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
@@ -58,12 +62,33 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
+      - name: Convert uploaded light file and update DB
+        if: github.event_name == 'push' || inputs.source == 'security_light' || inputs.source == 'all' || github.event_name == 'schedule'
+        run: python update_security_lights.py --output-dir security-light-output
       - name: Collect selected source
+        if: github.event_name != 'push' && inputs.source != 'security_light'
         env:
           SELECTED_SOURCE: ${{ inputs.source || 'all' }}
         run: |
           if [ "$SELECTED_SOURCE" = 'all' ]; then
-            python collect_facilities.py --once
+            python collect_facilities.py --once --sources cctv streetlight convenience police
           else
             python collect_facilities.py --once --sources "$SELECTED_SOURCE"
+          fi
+      - name: Upload light conversion results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-light-update-results
+          path: backend/security-light-output/
+          retention-days: 30
+          if-no-files-found: ignore
+      - name: Light update summary
+        if: always()
+        run: |
+          if [ -f security-light-output/summary.json ]; then
+            echo '### 보안등 파일 갱신 결과' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat security-light-output/summary.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi

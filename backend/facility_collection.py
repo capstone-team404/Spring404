@@ -207,7 +207,7 @@ def collect_lights(session, area, kind, env=os.environ):
                       data={"infId": "OA-22205", "seq": "1", "infSeq": "1"}).content
         date = "2023-12-21"
     else:
-        raw = (Path(__file__).parent / "data" / "mapo-security-lights-geocoded.csv").read_bytes()
+        raise NotConfigured("보안등 원본 파일은 update_security_lights.py로 변환·갱신해 주세요. 기존 자료를 유지합니다.")
     selected = in_area(parse_light_csv(raw, kind, date), area)
     if not selected:
         raise CollectionError("조명 원본에 대상 지역 지점이 없습니다. 지역 포함 범위를 확인한 CSV가 필요합니다.")

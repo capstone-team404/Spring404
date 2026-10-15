@@ -49,7 +49,8 @@ def test_light_csv_korean_encoding_and_schema():
     assert rows[0]['data_date'] == '2023-12-21'
     for raw in (b'<html>error</html>',b'lat,lng\n',b'lat,lng\nnan,126\n'):
         with pytest.raises(CollectionError): parse_light_csv(raw,'security_light')
-    bundled = collect_lights(Session([]),AREA,'security_light',{})
+    with pytest.raises(NotConfigured): collect_lights(Session([]),AREA,'security_light',{})
+    bundled = collect_lights(Session([]),AREA,'security_light',{'SECURITY_LIGHT_CSV_PATH':str(BACKEND/'data/mapo-security-lights-geocoded.csv')})
     assert len(bundled) == 1816
     assert len({item['external_id'] for item in bundled}) == 1816
     assert all(item['metadata']['coverage'] == 'partial' for item in bundled)
@@ -233,7 +234,7 @@ def test_engine_does_not_log_or_store_raw_exception_with_credentials(store):
 
 
 def test_partial_geocoded_snapshot_round_trip_and_source_isolation(store):
-    rows = collect_lights(Session([]),AREA,'security_light',{})
+    rows = collect_lights(Session([]),AREA,'security_light',{'SECURITY_LIGHT_CSV_PATH':str(BACKEND/'data/mapo-security-lights-geocoded.csv')})
     store.save('convenience',[point()],'success',utcnow())
     result = run_collection(store,{'security_light':lambda:rows},sources=['security_light'])
     assert result == {'security_light':{'status':'success','count':1816}}
