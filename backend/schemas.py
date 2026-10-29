@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from auth_validation import validate_signup
@@ -106,3 +107,12 @@ class RouteSafetyRequest(BaseModel):
 
 class AdminReviewCheckedRequest(BaseModel):
     checked: bool
+
+
+class NaverCompleteRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=2048)
+    state: str = Field(min_length=20, max_length=128)
+
+
+class NaverStartRequest(BaseModel):
+    consent: Literal[True]

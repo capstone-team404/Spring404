@@ -4,6 +4,10 @@ import os
 import requests
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from urllib.parse import urlencode
+from naver_auth import begin_connection, consume_state, fetch_female_profile, link_account, settings as naver_settings, verification_mode
+from schemas import NaverCompleteRequest, NaverStartRequest
 
 try:
     from dotenv import load_dotenv
@@ -131,6 +135,40 @@ def me(user=Depends(require_user)):
 def gender_verification(payload: GenderVerificationRequest, user=Depends(require_user)):
     return {"user": verify_gender(user["id"], payload.test_code)}
 
+
+
+@app.get('/auth/verification-config')
+def verification_config():
+    try:
+        naver_settings()
+        configured = True
+    except HTTPException:
+        configured = False
+    return {'mode': verification_mode(), 'naver_configured': configured}
+
+
+@app.post('/auth/naver/start')
+def naver_start(payload: NaverStartRequest, user=Depends(require_user)):
+    return {'authorization_url': begin_connection(user['id'])}
+
+
+@app.get('/auth/naver/callback')
+def naver_callback(code: str = '', state: str = '', error: str | None = None):
+    _, _, _, frontend = naver_settings()
+    if error or not 1 <= len(code) <= 2048 or not 20 <= len(state) <= 128:
+        result = {'naver_error': 'cancelled'}
+    else:
+        # Callback alone never links an account. Completion requires the original logged-in member.
+        result = {'naver_code': code, 'naver_state': state}
+    return RedirectResponse(frontend + '/#' + urlencode(result), status_code=303,
+                            headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})
+
+
+@app.post('/auth/naver/complete')
+def naver_complete(payload: NaverCompleteRequest, user=Depends(require_user)):
+    consume_state(payload.state, user['id'])
+    link_account(user['id'], fetch_female_profile(payload.code, payload.state))
+    return {'message': 'connected'}
 
 
 @app.post("/auth/logout")

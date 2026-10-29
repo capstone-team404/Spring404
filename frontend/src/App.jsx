@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import SafetyMap from './SafetyMap';
-import { clearToken, getMe, getToken, login, logout, saveToken, signup, verifyGender } from './authApi';
+import { clearToken, getMe, getToken, login, logout, saveToken, signup, completeNaverConnection } from './authApi';
 import './auth.css';
+import './home.css';
+import NaverConnection from './NaverConnection';
+
+const naverReturn = new URLSearchParams(window.location.hash.slice(1));
+let naverCompletion;
+
 
 const initialSignup = {
   nickname: '',
@@ -12,7 +18,7 @@ const initialSignup = {
   privacyAgreed: false,
 };
 
-function AuthCard({ mode, setMode, onAuthenticated }) {
+function AuthCard({ mode, setMode, onAuthenticated, notice }) {
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [signupForm, setSignupForm] = useState(initialSignup);
   const [error, setError] = useState('');
@@ -147,9 +153,9 @@ function AuthCard({ mode, setMode, onAuthenticated }) {
           </>
         )}
 
-        {error && <div className="auth-error" role="alert">{error}</div>}
+        {(error || notice) && <div className="auth-error" role="alert">{error || notice}</div>}
         <button className="auth-primary" disabled={busy}>
-          {busy ? '처리 중…' : isSignup ? '다음: 여성 인증' : '로그인'}
+          {busy ? '처리 중…' : isSignup ? '다음: 계정 성별 확인' : '로그인'}
         </button>
         <button type="button" className="auth-link" onClick={changeMode}>
           {isSignup ? '이미 계정이 있어요' : '처음이신가요? 회원가입'}
@@ -159,59 +165,13 @@ function AuthCard({ mode, setMode, onAuthenticated }) {
   );
 }
 
-function Verify({ user, onDone, onLogout }) {
-  const [code, setCode] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (event) => {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      const result = await verifyGender(code);
-      onDone(result.user);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <main className="auth-page">
-      <form className="auth-card auth-verify" onSubmit={submit}>
-        <div className="auth-step">2 / 2</div>
-        <div className="auth-shield" aria-hidden="true">✓</div>
-        <h1>여성 인증</h1>
-        <p>
-          여기지는 여성 1인 여행자의 안전한 이동을 돕기 위한 서비스입니다.<br />
-          서비스 이용을 위해 여성 인증이 필요합니다.
-        </p>
-        <div className="auth-mock-notice">
-          MVP에서는 실제 신분증을 저장하지 않고 테스트 코드로만 인증합니다.
-        </div>
-        <label className="auth-field">
-          <span>{user.nickname}님의 테스트 인증 코드</span>
-          <input
-            value={code}
-            onChange={(event) => setCode(event.target.value.toUpperCase())}
-            placeholder="인증 코드 입력"
-            autoComplete="one-time-code"
-            required
-          />
-        </label>
-        <button type="button" className="auth-demo-button" onClick={() => setCode('HEREJI404')}>
-          데모 코드 자동 입력
-        </button>
-        {error && <div className="auth-error" role="alert">{error}</div>}
-        <button className="auth-primary" disabled={busy}>
-          {busy ? '인증 중…' : '여성 인증하기'}
-        </button>
-        <button type="button" className="auth-link" onClick={onLogout}>로그아웃</button>
-      </form>
-    </main>
-  );
+function Verify({ user, onDone, onLogout, notice }) {
+  return <main className="auth-page"><section className="auth-card auth-verify">
+    <div className="auth-brand">여기지!</div>
+    {notice && <div className="auth-error" role="alert">{notice}</div>}
+    <NaverConnection user={user} onDone={onDone} />
+    <button type="button" className="auth-link" onClick={onLogout}>로그아웃</button>
+  </section></main>;
 }
 
 function SignupComplete({ user }) {
@@ -219,7 +179,7 @@ function SignupComplete({ user }) {
     <main className="auth-page">
       <section className="auth-card auth-complete">
         <div className="auth-complete-icon">✓</div>
-        <h1>여성 인증이 완료되었습니다</h1>
+        <h1>{user.verification_provider === 'naver' ? '계정 성별 확인이 완료됐어요' : '데모 확인이 완료됐어요'}</h1>
         <p>{user.nickname}님, 여기지! 가입이 완료됐어요.<br />안전 지도로 이동합니다.</p>
         <div className="auth-loading-bar"><span /></div>
       </section>
@@ -230,6 +190,8 @@ function SignupComplete({ user }) {
 export default function App() {
   const [mode, setMode] = useState('loading');
   const [user, setUser] = useState(null);
+  const [showSplash, setShowSplash] = useState(true);
+  const [notice, setNotice] = useState('');
   const route = (next) => {
     setUser(next);
     setMode(next.gender_verified ? 'map' : 'verify');
@@ -247,15 +209,42 @@ export default function App() {
   };
 
   useEffect(() => {
+    const timer = window.setTimeout(() => setShowSplash(false), 1100);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
     const expired = () => {
-      clearToken();
-      setUser(null);
-      setMode('login');
+      if (!active) return;
+      clearToken(); setUser(null); setMode('login');
     };
     window.addEventListener('hereji:session-expired', expired);
-    if (getToken()) getMe().then(({ user: next }) => route(next)).catch(expired);
-    else setMode('login');
-    return () => window.removeEventListener('hereji:session-expired', expired);
+    const code = naverReturn.get('naver_code');
+    const state = naverReturn.get('naver_state');
+    const cancelled = naverReturn.has('naver_error');
+    if (code || cancelled) window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    async function initialize() {
+      if (!getToken()) {
+        if (active) {
+          setMode('login');
+          if (code) setNotice('기존 계정으로 로그인한 뒤 네이버 연결을 다시 시작해 주세요.');
+        }
+        return;
+      }
+      let message = cancelled ? '네이버 연결이 취소되었어요. 원할 때 다시 시작해 주세요.' : '';
+      if (code && state) {
+        naverCompletion ||= completeNaverConnection({ code, state });
+        try { await naverCompletion; }
+        catch (err) { message = err.message; }
+      }
+      try {
+        const { user: next } = await getMe();
+        if (active) { setNotice(message); route(next); }
+      } catch { expired(); }
+    }
+    initialize();
+    return () => { active = false; window.removeEventListener('hereji:session-expired', expired); };
   }, []);
 
   useEffect(() => {
@@ -264,13 +253,14 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [mode]);
 
-  if (mode === 'loading') return <main className="auth-page">불러오는 중…</main>;
+  if (showSplash) return <main className="brand-splash" aria-label="여기지 시작 화면"><div className="brand-wordmark">여기지<span>!</span></div></main>;
+  if (mode === 'loading') return <main className="auth-page" role="status">계정을 확인하고 있어요…</main>;
   if (mode === 'login' || mode === 'signup') {
-    return <AuthCard mode={mode} setMode={setMode} onAuthenticated={route} />;
+    return <AuthCard mode={mode} setMode={setMode} onAuthenticated={route} notice={notice} />;
   }
   if (mode === 'verify') {
-    return <Verify user={user} onDone={finishVerification} onLogout={handleLogout} />;
+    return <Verify user={user} onDone={finishVerification} onLogout={handleLogout} notice={notice} />;
   }
   if (mode === 'complete') return <SignupComplete user={user} />;
-  return <SafetyMap user={user} onUserChange={setUser} onLogout={handleLogout} />;
+  return <>{notice && <div className="app-notice" role="alert">{notice}<button type="button" aria-label="알림 닫기" onClick={() => setNotice('')}>×</button></div>}<SafetyMap user={user} onUserChange={setUser} onLogout={handleLogout} /></>;
 }

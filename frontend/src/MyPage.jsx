@@ -8,12 +8,14 @@ import {
   getMyReviews,
   updateProfile,
 } from './authApi';
+import NaverConnection from './NaverConnection';
 
 const tabs = [
   { key: 'home', label: '홈' },
   { key: 'profile', label: '프로필' },
   { key: 'activity', label: '나의 활동' },
   { key: 'reports', label: '신고 내역' },
+  { key: 'connection', label: '계정 연결' },
   { key: 'account', label: '계정 관리' },
 ];
 
@@ -97,8 +99,8 @@ function ReviewList({ reviews }) {
   );
 }
 
-export default function MyPage({ user, onUserChange, onBackToMap, onLogout }) {
-  const [activeTab, setActiveTab] = useState('home');
+export default function MyPage({ user, onUserChange, onBackToMap, onLogout, initialTab = 'home', initialActivity = 'written' }) {
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [activity, setActivity] = useState(null);
   const [myReviews, setMyReviews] = useState([]);
   const [likedReviews, setLikedReviews] = useState([]);
@@ -107,7 +109,7 @@ export default function MyPage({ user, onUserChange, onBackToMap, onLogout }) {
   const [profileImage, setProfileImage] = useState(user?.profile_image || '');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const [activityTab, setActivityTab] = useState('written');
+  const [activityTab, setActivityTab] = useState(initialActivity);
 
   const summary = activity?.summary || {};
   const currentReviews = activityTab === 'written' ? myReviews : likedReviews;
@@ -320,6 +322,8 @@ export default function MyPage({ user, onUserChange, onBackToMap, onLogout }) {
           ))}
         </section>
       )}
+
+      {activeTab === 'connection' && <section className="mypage-section"><NaverConnection user={user} onDone={onUserChange} /></section>}
 
       {activeTab === 'account' && (
         <section className="mypage-section">

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import FacilityInventory from './FacilityInventory';
+import HomePanel from './HomePanel';
 
 import {
   center,
@@ -455,6 +456,8 @@ function LocationBox({ startPoint, endPoint }) {
 export function BottomSheet({
   sheetHeight,
   startDrag,
+  toggleSheet,
+  homePanelProps,
   isRouteView,
   closeRouteView,
   startPoint,
@@ -564,17 +567,8 @@ export function BottomSheet({
         touchAction: 'pan-y',
       }}
     >
-      <div
-        onPointerDown={startDrag}
-        style={{
-          width: 46,
-          height: 5,
-          borderRadius: 999,
-          backgroundColor: '#d1d5db',
-          margin: '0 auto 12px',
-          cursor: 'grab',
-        }}
-      />
+      <button type="button" className="sheet-handle" aria-label={sheetHeight < 250 ? '정보 패널 펼치기' : '정보 패널 접기'} aria-expanded={sheetHeight >= 250}
+        onPointerDown={startDrag} onClick={toggleSheet}><span /></button>
 
       {isRouteView ? (
         <>
@@ -761,70 +755,7 @@ export function BottomSheet({
           <FacilityInventory inventory={selectedZone.facility_inventory} />
         </>
       ) : !selectedPlace ? (
-        <div style={{ textAlign: 'center' }}>
-          <div
-            style={{
-              fontSize: 24,
-              fontWeight: 900,
-              fontFamily: '"Trebuchet MS", "Segoe UI", sans-serif',
-              color: '#14532d',
-              lineHeight: 1.1,
-            }}
-          >
-            여기지!
-          </div>
-          <div
-            style={{
-              marginTop: 5,
-              fontSize: 13,
-              fontWeight: 700,
-              color: '#6b7280',
-            }}
-          >
-            Safety Map
-          </div>
-
-          <div
-            style={{
-              marginTop: 8,
-              fontSize: 12,
-              color: '#9ca3af',
-              lineHeight: 1.4,
-            }}
-          >
-            장소를 누르면 리뷰를, 빈 지도 영역을 누르면 존 정보를 볼 수 있어요
-          </div>
-          {zoneLoading && (
-            <div style={{ marginTop: 8, fontSize: 11, color: '#9ca3af', fontWeight: 800 }}>
-              존 정보를 불러오는 중...
-            </div>
-          )}
-          {zoneError && (
-            <div style={{ marginTop: 8, fontSize: 11, color: '#ef4444', fontWeight: 800 }}>
-              {zoneError}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={onOpenMyPage}
-            style={{
-              display: 'none',
-              width: 'min(340px, 94%)',
-              height: 42,
-              marginTop: 14,
-              border: '2px solid #14532d',
-              borderRadius: 12,
-              backgroundColor: '#ffffff',
-              color: '#14532d',
-              fontSize: 0,
-              fontWeight: 900,
-              boxShadow: '0 6px 14px rgba(15, 23, 42, 0.1)',
-            }}
-          >
-            마이페이지
-            <span style={{ fontSize: 15 }}>마이페이지</span>
-          </button>
-        </div>
+        <HomePanel {...homePanelProps} loading={zoneLoading} error={zoneError} />
       ) : (
         <>
           <div

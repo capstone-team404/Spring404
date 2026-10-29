@@ -11,3 +11,7 @@ frontend/dist/
 frontend/.env
 frontend/.env.*
 
+
+# Configuration templates contain no real credentials.
+!.env.example
+!**/.env.example

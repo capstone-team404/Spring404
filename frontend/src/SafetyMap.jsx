@@ -21,6 +21,8 @@ import { BottomSheet, MapView, MyLocationButton, SearchPanel } from './AppViews'
 import { authFetch } from './authApi';
 import AdminPage from './AdminPage';
 import MyPage from './MyPage';
+import SideMenu from './SideMenu';
+import { ServiceGuide } from './HomePanel';
 
 const REPORT_REASONS = [
   { label: '허위·사실과 다른 정보', description: '실제 장소 상황과 다른 내용이라고 판단되는 경우' },
@@ -37,6 +39,14 @@ const REPORT_REASONS = [
 function SafetyMap({ user, onUserChange, onLogout }) {
   const [screen, setScreen] = useState('map');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [myPageTarget, setMyPageTarget] = useState({ tab: 'home', activity: 'written' });
+  const openMenuPage = (target) => {
+    setMenuOpen(false);
+    if (target === 'map') { setScreen('map'); return; }
+    if (target === 'guide' || target === 'admin') { setScreen(target); return; }
+    setMyPageTarget({ tab: target === 'liked' ? 'activity' : target === 'profile' ? 'home' : target, activity: target === 'liked' ? 'liked' : 'written' });
+    setScreen('mypage');
+  };
   const [tmapReady, setTmapReady] = useState(false);
   const [tmapLoadError, setTmapLoadError] = useState('');
 
@@ -1309,10 +1319,13 @@ function SafetyMap({ user, onUserChange, onLogout }) {
   };
 
   const startDrag = (e) => {
+    if (e.button !== 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = {
       dragging: true,
       startY: e.clientY,
       startHeight: sheetHeight,
+      moved: false,
     };
   };
 
@@ -1320,11 +1333,18 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     if (!dragRef.current.dragging) return;
 
     const diff = dragRef.current.startY - e.clientY;
+    if (Math.abs(diff) > 6) dragRef.current.moved = true;
     const nextHeight = dragRef.current.startHeight + diff;
     const maxHeight = getViewportHeight() * 0.82;
-    const minHeight = selectedPlace || isRouteView ? 260 : 110;
+    const minHeight = selectedPlace || isRouteView ? Math.min(260, maxHeight) : HOME_SHEET_HEIGHT;
 
     setSheetHeight(Math.min(maxHeight, Math.max(minHeight, nextHeight)));
+  };
+
+  const toggleSheet = (event) => {
+    if (event.detail !== 0 && dragRef.current.moved) { dragRef.current.moved = false; return; }
+    const expanded = Math.min(560, getViewportHeight() * 0.82);
+    setSheetHeight(sheetHeight < 250 ? expanded : selectedPlace || isRouteView ? Math.min(260, expanded) : HOME_SHEET_HEIGHT);
   };
 
   const endDrag = () => {
@@ -1340,11 +1360,13 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     return window.visualViewport?.height || window.innerHeight;
   };
 
-  if (tmapLoadError) {
+  if (screen === 'guide') return <ServiceGuide onBack={() => setScreen('map')} />;
+
+  if (tmapLoadError && screen === 'map') {
     return <div style={{ padding: 20 }}>{tmapLoadError}</div>;
   }
 
-  if (!tmapReady) {
+  if (!tmapReady && screen === 'map') {
     return <div style={{ padding: 20 }}>티맵을 불러오는 중...</div>;
   }
 
@@ -1352,6 +1374,8 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     return (
       <MyPage
         user={user}
+        initialTab={myPageTarget.tab}
+        initialActivity={myPageTarget.activity}
         onUserChange={onUserChange}
         onBackToMap={() => setScreen('map')}
         onLogout={onLogout}
@@ -1410,141 +1434,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
           onOpenMenu={() => setMenuOpen(true)}
         />
 
-        {menuOpen && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: 80,
-              backgroundColor: 'rgba(15, 23, 42, 0.28)',
-            }}
-            onClick={() => setMenuOpen(false)}
-          >
-            <aside
-              style={{
-                width: 'min(292px, 78%)',
-                height: '100%',
-                backgroundColor: '#ffffff',
-                boxShadow: '16px 0 32px rgba(15, 23, 42, 0.22)',
-                padding:
-                  'calc(env(safe-area-inset-top, 0px) + 18px) 16px calc(env(safe-area-inset-bottom, 0px) + 18px)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 14,
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 10,
-                  marginBottom: 4,
-                }}
-              >
-                <strong style={{ color: '#14532d', fontSize: 20 }}>여기지!</strong>
-                <button
-                  type="button"
-                  onClick={() => setMenuOpen(false)}
-                  aria-label="메뉴 닫기"
-                  style={{
-                    width: 34,
-                    height: 34,
-                    border: 'none',
-                    borderRadius: 10,
-                    backgroundColor: '#f3f4f6',
-                    color: '#374151',
-                    fontSize: 20,
-                    fontWeight: 900,
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-
-              <div
-                style={{
-                  padding: 12,
-                  border: '1px solid #e5e7eb',
-                  borderRadius: 14,
-                  backgroundColor: '#f8fafc',
-                }}
-              >
-                <div style={{ fontSize: 13, color: '#64748b', fontWeight: 800 }}>
-                  로그인 계정
-                </div>
-                <div style={{ marginTop: 4, color: '#111827', fontWeight: 900 }}>
-                  {user.nickname}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setScreen('mypage');
-                }}
-                style={{
-                  width: '100%',
-                  height: 46,
-                  border: '2px solid #14532d',
-                  borderRadius: 12,
-                  backgroundColor: '#ffffff',
-                  color: '#14532d',
-                  fontSize: 15,
-                  fontWeight: 900,
-                  textAlign: 'left',
-                  padding: '0 14px',
-                }}
-              >
-                마이페이지
-              </button>
-
-              {user.role === 'admin' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setScreen('admin');
-                  }}
-                  style={{
-                    width: '100%',
-                    height: 46,
-                    border: '2px solid #b91c1c',
-                    borderRadius: 12,
-                    backgroundColor: '#fff7ed',
-                    color: '#b91c1c',
-                    fontSize: 15,
-                    fontWeight: 900,
-                    textAlign: 'left',
-                    padding: '0 14px',
-                  }}
-                >
-                  관리자 페이지
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={onLogout}
-                style={{
-                  width: '100%',
-                  height: 44,
-                  marginTop: 'auto',
-                  border: 'none',
-                  borderRadius: 12,
-                  backgroundColor: '#f3f4f6',
-                  color: '#374151',
-                  fontSize: 14,
-                  fontWeight: 900,
-                }}
-              >
-                로그아웃
-              </button>
-            </aside>
-          </div>
-        )}
+        {menuOpen && <SideMenu user={user} onClose={() => setMenuOpen(false)} onNavigate={openMenuPage} onLogout={onLogout} />}
 
         {reportTargetId && (
           <div
@@ -1707,6 +1597,9 @@ function SafetyMap({ user, onUserChange, onLogout }) {
         <BottomSheet
           sheetHeight={sheetHeight}
           startDrag={startDrag}
+          toggleSheet={toggleSheet}
+          homePanelProps={{ zones: mapZones, myLocation, expanded: sheetHeight >= 250, onSelectZone: openZoneDetail,
+            onSearch: () => setSearchScreenOpen(true), onOpenActivity: () => openMenuPage('activity'), onOpenGuide: () => setScreen('guide') }}
           isRouteView={isRouteView}
           closeRouteView={closeRouteView}
           startPoint={startPoint}
@@ -1733,7 +1626,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
           startEditReview={startEditReview}
           currentUserId={user.id}
           currentUser={user}
-          onOpenMyPage={() => setScreen('mypage')}
+          onOpenMyPage={() => openMenuPage('profile')}
           onLogout={onLogout}
           displayedSafetyScore={getDisplayedSafetyScore()}
           safetyScoreLoading={safetyScoreLoading}

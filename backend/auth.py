@@ -56,6 +56,7 @@ def init_auth_tables(cursor):
         'status': "VARCHAR(20) NOT NULL DEFAULT 'active'",
         'verification_status': "VARCHAR(30) NOT NULL DEFAULT 'pending'",
         'verified_at': 'DATETIME NULL',
+        'verification_provider': 'VARCHAR(20) NULL',
         'terms_agreed_at': 'DATETIME NULL',
         'privacy_agreed_at': 'DATETIME NULL',
     }
@@ -73,11 +74,16 @@ def init_auth_tables(cursor):
            WHERE gender_verified=TRUE AND verification_status<>'verified'"""
     )
 
+    from naver_auth import init_naver_tables
+    init_naver_tables(cursor)
+
 
 def public_user(row):
     role = row.get('role') or 'user'
     if row['email'].lower().strip() in _admin_emails():
         role = 'admin'
+    from naver_auth import verification_mode
+    verified = bool(row['gender_verified']) and (verification_mode() == 'demo' or row.get('verification_provider') == 'naver')
     return {
         'id': row['id'],
         'email': row['email'],
@@ -85,8 +91,9 @@ def public_user(row):
         'profile_image': row.get('profile_image'),
         'role': role,
         'status': row.get('status') or 'active',
-        'gender_verified': bool(row['gender_verified']),
-        'verification_status': row.get('verification_status') or ('verified' if row['gender_verified'] else 'pending'),
+        'gender_verified': verified,
+        'verification_provider': row.get('verification_provider'),
+        'verification_status': 'verified' if verified else 'pending',
         'verified_at': row.get('verified_at'),
     }
 
@@ -159,13 +166,16 @@ def require_admin(user=Depends(require_verified_user)):
 
 
 def verify_gender(user_id, test_code):
+    from naver_auth import verification_mode
+    if verification_mode() != 'demo':
+        raise HTTPException(403, detail='데모 인증은 사용할 수 없습니다. 네이버 계정을 연결해 주세요.')
     if not hmac.compare_digest(test_code.strip(), GENDER_TEST_CODE):
         raise HTTPException(400, detail='인증 코드가 올바르지 않습니다.')
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 '''UPDATE users
-                   SET gender_verified=TRUE, verification_status='verified',
+                   SET gender_verified=TRUE, verification_provider='demo', verification_status='verified',
                        verified_at=UTC_TIMESTAMP(), status='active'
                    WHERE id=%s AND deleted_at IS NULL''',
                 (user_id,),
@@ -203,6 +213,8 @@ def delete_user_account(user_id):
     deleted_email = f'deleted_user_{user_id}_{secrets.token_hex(8)}@deleted.local'
     with get_connection() as conn:
         with conn.cursor() as cursor:
+            cursor.execute('DELETE FROM naver_link_state WHERE user_id=%s', (user_id,))
+            cursor.execute('DELETE FROM naver_account_link WHERE user_id=%s', (user_id,))
             cursor.execute('DELETE FROM auth_session WHERE user_id=%s', (user_id,))
             cursor.execute('DELETE FROM review_like WHERE user_id=%s', (user_id,))
             cursor.execute('DELETE FROM review_report WHERE user_id=%s', (user_id,))
@@ -210,7 +222,7 @@ def delete_user_account(user_id):
             cursor.execute(
                 """UPDATE users
                    SET email=%s, password_hash='', nickname='탈퇴한 사용자',
-                       profile_image=NULL, gender_verified=FALSE,
+                       profile_image=NULL, gender_verified=FALSE, verification_provider=NULL,
                        verification_status='withdrawn', status='withdrawn',
                        deleted_at=UTC_TIMESTAMP()
                    WHERE id=%s""",

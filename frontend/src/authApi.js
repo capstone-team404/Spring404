@@ -39,3 +39,7 @@ export const setAdminReviewChecked = (reviewId, checked) =>
 export const restoreAdminReview = reviewId =>
   request(`/admin/reviews/${reviewId}/restore`, { method: 'PATCH' });
 export async function logout() { try { await request('/auth/logout', {method:'POST'}); } finally { clearToken(); } }
+
+export const getVerificationConfig = () => request('/auth/verification-config');
+export const startNaverConnection = () => request('/auth/naver/start', json('POST', { consent: true }));
+export const completeNaverConnection = payload => request('/auth/naver/complete', json('POST', payload));
