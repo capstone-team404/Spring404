@@ -48,11 +48,24 @@ export const getAiAverage = (arr) => {
   return (sum / arr.length).toFixed(2);
 };
 
-export const getSafetyColor = (score) => {
-  if (score >= 4) return '#16a34a';
-  if (score >= 2.5) return '#f59e0b';
-  return '#ef4444';
+// Display boundaries are not a change to the underlying score formula.
+export const SAFETY_HIGH_THRESHOLD = 3.5;
+export const SAFETY_MID_THRESHOLD = 2.0;
+export const zoneHasScore = (zone) => {
+  if (!zone) return false;
+  if (zone.score_status) return zone.score_status !== 'insufficient_data';
+  return zone.review_safety_score != null || Number(zone.public_safety_score || 0) > 0 ||
+    ['cctv_count', 'lamp_count', 'convenience_count', 'police_count'].some(k => Number(zone[k] || 0) > 0);
 };
+export const getSafetyColor = (score, hasData = true) => {
+  if (!hasData || score == null || !Number.isFinite(Number(score))) return '#64748b';
+  if (Number(score) >= SAFETY_HIGH_THRESHOLD) return '#00875a';
+  if (Number(score) >= SAFETY_MID_THRESHOLD) return '#eab308';
+  return '#dc2626';
+};
+export const getZoneSafetyLabel = (zone) => !zoneHasScore(zone) ? '정보 부족' :
+  Number(zone.final_safety_score) >= SAFETY_HIGH_THRESHOLD ? '높은 평가' :
+  Number(zone.final_safety_score) >= SAFETY_MID_THRESHOLD ? '보통 평가' : '낮은 평가';
 
 export const formatMeter = (meter) => {
   if (!meter && meter !== 0) return '-';

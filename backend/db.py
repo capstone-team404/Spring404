@@ -801,6 +801,13 @@ def get_review_score_average(zone_id):
             return row["review_safety_score"] if row else None
 
 
+def score_information_status(review_score, public_zone):
+    # Zero-valued legacy rows cannot prove that all facilities were surveyed.
+    has_public = bool(public_zone) and (float(public_zone.get('public_safety_score') or 0) > 0 or
+        any(int(public_zone.get(k) or 0) > 0 for k in ('cctv_count', 'lamp_count', 'convenience_count', 'police_count')))
+    return 'available' if review_score is not None or has_public else 'insufficient_data'
+
+
 def calculate_safety_score(zone_id):
     public_zone = get_public_safety_zone(zone_id)
     if public_zone is None:
@@ -828,6 +835,7 @@ def calculate_safety_score(zone_id):
         "review_safety_score": review_score,
         "public_safety_score": public_score,
         "final_safety_score": round(final_score, 2),
+        "score_status": score_information_status(review_score, public_zone),
         "cctv_count": public_zone["cctv_count"],
         "lamp_count": public_zone["lamp_count"],
         "convenience_count": public_zone["convenience_count"],
@@ -887,5 +895,6 @@ def get_map_zones():
                 public_score * PUBLIC_WEIGHT
             )
         zone["final_safety_score"] = round(final_score, 2)
+        zone["score_status"] = score_information_status(review_score, zone)
 
     return zones

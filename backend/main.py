@@ -132,6 +132,7 @@ def gender_verification(payload: GenderVerificationRequest, user=Depends(require
     return {"user": verify_gender(user["id"], payload.test_code)}
 
 
+
 @app.post("/auth/logout")
 def logout(authorization: str | None = Header(default=None)):
     logout_token(authorization)
@@ -199,6 +200,7 @@ def call_ai(text, user_score=None):
         res = requests.post(
             AI_URL,
             json={"review": text, "user_score": user_score},
+            headers={"X-AI-Service-Token": os.getenv("AI_SERVICE_TOKEN", "")},
             timeout=AI_TIMEOUT,
         )
         res.raise_for_status()
@@ -374,7 +376,7 @@ def rank_routes_by_safety(payload: RouteSafetyRequest, _user=Depends(require_ver
     }
 
     try:
-        res = requests.post(AI_ROUTE_URL, json=ai_payload, timeout=5)
+        res = requests.post(AI_ROUTE_URL, json=ai_payload, headers={"X-AI-Service-Token": os.getenv("AI_SERVICE_TOKEN", "")}, timeout=20)
         res.raise_for_status()
         ai_ranked = res.json().get("routes", [])
         route_by_id = {route["id"]: route for route in routes}

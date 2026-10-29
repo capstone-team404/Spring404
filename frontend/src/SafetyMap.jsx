@@ -1298,6 +1298,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       setReviewRating(0);
       setReviewPhotos([]);
 
+      try { await refreshModerationScores(); } catch (refreshError) { console.error('Map refresh failed', refreshError); }
       alert('저장됨!');
     } catch (err) {
       console.error(err);

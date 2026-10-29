@@ -1,14 +1,17 @@
 import json
 import os
 import sys
+import hmac
+import logging
+import math
 from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 AI_DIR = Path(__file__).resolve().parent
 if str(AI_DIR) not in sys.path:
     sys.path.insert(0, str(AI_DIR))
@@ -17,7 +20,9 @@ from review_analysis import ALLOWED_TAGS, build_analysis
 
 load_dotenv()
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+client = OpenAI(api_key=OPENAI_API_KEY, timeout=15.0, max_retries=0) if OPENAI_API_KEY else None
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="HereJi AI Scoring API")
 
@@ -31,7 +36,7 @@ app.add_middleware(
 
 
 class ReviewInput(BaseModel):
-    review: str
+    review: str = Field(min_length=1, max_length=2000)
     user_score: float | None = None
 
 
@@ -65,8 +70,31 @@ class RouteRankInput(BaseModel):
     zones: list[ZoneInput]
 
 
+def require_service_token(x_ai_service_token: str | None = Header(default=None)):
+    expected = os.getenv('AI_SERVICE_TOKEN', '')
+    if not expected:
+        raise HTTPException(503, 'AI service authentication is not configured')
+    if not x_ai_service_token or not hmac.compare_digest(expected, x_ai_service_token):
+        raise HTTPException(401, 'Invalid AI service token')
+
+
+@app.get('/health')
+def health():
+    return {'status': 'ok', 'openai_configured': client is not None,
+            'service_auth_configured': bool(os.getenv('AI_SERVICE_TOKEN'))}
+
+
 def clamp_score(score: float) -> float:
     return max(0.0, min(float(score), 5.0))
+
+
+def validated_score(result):
+    value = result.get('ai_score')
+    if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or not 0 <= value <= 5:
+        raise ValueError('Invalid model score')
+    if not isinstance(result.get('tags'), list) or not isinstance(result.get('summary'), str):
+        raise ValueError('Invalid model response')
+    return float(value)
 
 
 def analyze_review_with_ai(review_text: str) -> dict:
@@ -92,10 +120,11 @@ def analyze_review_with_ai(review_text: str) -> dict:
                 {"role": "user", "content": review_text},
             ],
             temperature=0.2,
+            max_completion_tokens=400,
         )
         result = json.loads(response.choices[0].message.content)
         return {
-            "ai_score": clamp_score(result.get("ai_score", 3.0)),
+            "ai_score": validated_score(result),
             "tags": result.get("tags") or [],
             "summary": result.get("summary") or "",
         }
@@ -136,13 +165,14 @@ def apply_keyword_penalties(review_text: str, ai_score: float) -> float:
     return clamp_score(danger_score)
 
 
-@app.post("/analyze")
+@app.post("/analyze", dependencies=[Depends(require_service_token)])
 async def analyze_endpoint(payload: ReviewInput):
     try:
         ai_payload = analyze_review_with_ai(payload.review)
         source = "openai"
+        logger.info("Review analysis source=openai")
     except Exception as e:
-        print(f"OpenAI review analysis failed, using rule fallback: {e}")
+        logger.warning("Review analysis source=rule_fallback error_type=%s code=%s", type(e).__name__, getattr(e, "code", None))
         ai_payload = None
         source = "rule_fallback"
     return build_analysis(payload.review, payload.user_score, ai_payload, source)
@@ -194,7 +224,7 @@ def generate_route_explanations(ranked_routes: list[dict]) -> dict[str, dict]:
         route["id"]: build_fallback_explanation(route, index + 1)
         for index, route in enumerate(ranked_routes)
     }
-    if client is None or not ranked_routes:
+    if client is None or not ranked_routes or os.getenv("AI_ROUTE_EXPLANATIONS_ENABLED", "false").lower() != "true":
         return fallback
 
     facts = [
@@ -226,6 +256,7 @@ def generate_route_explanations(ranked_routes: list[dict]) -> dict[str, dict]:
                 {"role": "user", "content": json.dumps(facts, ensure_ascii=False)},
             ],
             temperature=0.2,
+            max_completion_tokens=800,
         )
         result = json.loads(response.choices[0].message.content)
         for item in result.get("explanations", []):
@@ -235,12 +266,12 @@ def generate_route_explanations(ranked_routes: list[dict]) -> dict[str, dict]:
             if route_id in fallback and summary and reason:
                 fallback[route_id] = {"summary": summary, "reason": reason}
     except Exception as e:
-        print(f"OpenAI route explanation failed, using templates: {e}")
+        logger.warning("Route explanation fallback error_type=%s code=%s", type(e).__name__, getattr(e, "code", None))
 
     return fallback
 
 
-@app.post("/rank-routes")
+@app.post("/rank-routes", dependencies=[Depends(require_service_token)])
 async def rank_routes(payload: RouteRankInput):
     zone_scores = {
         zone.zone_id: clamp_score(zone.final_safety_score)

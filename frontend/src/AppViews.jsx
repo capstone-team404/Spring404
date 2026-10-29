@@ -8,6 +8,8 @@ import {
   ZONE_FOCUS_ZOOM,
   mapStyle,
   getSafetyColor,
+  zoneHasScore,
+  getZoneSafetyLabel,
   getVisibleMapCenter,
   getUserAverage,
   toTmapLatLng,
@@ -298,7 +300,7 @@ export function MapView({
     mapZones.forEach((zone) => {
       const score = Number(zone.final_safety_score || 0);
       const isSelected = Number(selectedZone?.zone_id) === Number(zone.zone_id);
-      const fillColor = getSafetyColor(score);
+      const fillColor = getSafetyColor(score, zoneHasScore(zone));
       const path = [
         { lat: zone.min_lat, lng: zone.min_lng },
         { lat: zone.min_lat, lng: zone.max_lng },
@@ -314,7 +316,7 @@ export function MapView({
         strokeWeight: isSelected ? 3 : 1,
         strokeOpacity: isSelected ? 0.86 : 0.58,
         fillColor,
-        fillOpacity: isSelected ? 0.24 : 0.12,
+        fillOpacity: isSelected ? 0.38 : 0.26,
         zIndex: isSelected ? 5 : 1,
       });
 
@@ -532,6 +534,9 @@ export function BottomSheet({
           </div>
         </div>
       )}
+      <div aria-label="안전점수 범례" style={{ position: 'absolute', top: 74, left: 12, zIndex: 19, padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,.96)', boxShadow: '0 2px 8px #0002', fontSize: 12 }}>
+        {[['#00875a','높음 ≥3.5'],['#eab308','보통 ≥2.0'],['#dc2626','낮음 <2.0'],['#64748b','정보 부족']].map(([color,label]) => <span key={label} style={{ display: 'inline-flex', alignItems: 'center', marginRight: 10 }}><i style={{ width: 10, height: 10, background: color, display: 'inline-block', marginRight: 4 }} />{label}</span>)}
+      </div>
       {false && (
       <div style={{ position: 'fixed', top: 12, right: 12, zIndex: 45, display: 'flex', gap: 7, alignItems: 'center', padding: '7px 9px', borderRadius: 999, background: 'rgba(255,255,255,.95)', boxShadow: '0 4px 16px rgba(0,0,0,.12)', fontSize: 12, fontWeight: 800 }}>
         <span>{currentUser?.nickname}</span>
@@ -734,14 +739,14 @@ export function BottomSheet({
             }}
           >
             <div style={{ ...scoreBoxStyle, textAlign: 'center' }}>
-              <div style={scoreLabelStyle}>존 안전 점수</div>
+              <div style={scoreLabelStyle}>존 안전 점수 · {getZoneSafetyLabel(selectedZone)}</div>
               <div
                 style={{
                   ...scoreValueStyle,
-                  color: getSafetyColor(Number(selectedZone.final_safety_score || 0)),
+                  color: getSafetyColor(selectedZone.final_safety_score, zoneHasScore(selectedZone)),
                 }}
               >
-                {Number(selectedZone.final_safety_score || 0).toFixed(2)} / 5
+                {zoneHasScore(selectedZone) ? `${Number(selectedZone.final_safety_score).toFixed(2)} / 5` : '정보 부족'}
               </div>
             </div>
 
@@ -947,10 +952,10 @@ export function BottomSheet({
               <div
                 style={{
                   ...scoreValueStyle,
-                  color: getSafetyColor(Number(displayedSafetyScore)),
+                  color: getSafetyColor(Number(displayedSafetyScore), zoneHasScore(selectedZone)),
                 }}
               >
-                {displayedSafetyScore} / 5
+                {zoneHasScore(selectedZone) ? `${displayedSafetyScore} / 5` : '정보 부족'}
               </div>
             </div>
           </div>
