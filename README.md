@@ -178,114 +178,32 @@ User
 
 ```text
 📦 Project Root(Spring404)
-┣ 📁 frontend
-┃ ┗ 📁 src
-┃   ┣ App.jsx
-┃   ┣ AppViews.jsx
-┃   ┣ mapHelpers.js
-┃   ┣ styles.js
-┃   ┗ main.jsx
-┃ ┣ index.html
-┃ ┣ package.json
-┃ ┗ package-lock.json
-┣ 📁 backend
-┃ ┣ .gitignore
-┃ ┣ db.py
-┃ ┣ main.py
-┃ ┣ schemas.py
-┃ ┣ .env.example
-┃ ┗ requirements.txt
+┣ 📁 .github/workflows
 ┣ 📁 ai
-┃ ┣ .gitignore
-┃ ┣ ai_scoring.py
-┃ ┣ main.py
-┃ ┗ requirements.txt
-┃ 📁 doc
-┃ ┣ PMF_analysis.md
-┃ ┗ elevator_speech.md
+┣ 📁 backend
+┣ 📁 doc
+┣ 📁 frontend
+┣ 📁 team
+┣ 📁 tests
 ┣ .gitignore
+┣ README.md
+┣ meeting-log.md
 ┣ render.yaml
-┣ self_demo.md
-┗ README.md
+┣ requirements-dev.txt
+┗ self_demo.md
 ```
 
 ### Project Structure
 
-#### frontend
-`App.jsx`
-- React 기반 메인 화면 구현
-- T Map 기반 지도 기능 구현
-
-`AppViews.jsx`
-- 화면 구성 컴포넌트 관리
-- 하단 패널 UI 구현
-
-`mapHelpers.js`
-- 지도 설정값 및 API 주소 관리
-- 거리·시간 포맷 유틸리티 함수 제공
-
-`styles.js`
-- 공통 스타일 및 UI 스타일 관리
-
-`main.jsx`
-- React 실행 파일
-
-`index.html`
-- React 실행을 위한 기본 HTML 파일
-
-`package.json`
-- 프로젝트에 필요한 라이브러리 정보 관리
-- 실행 및 빌드 스크립트 관리
-
-`package-lock.json`
-- 사용된 라이브러리 버전 정보 관리
-
-#### backend
-
-`.gitignore`
-- 깃허브에 업로드하지 않을 파일 목록 관리
-- venv, 캐시 파일, 환경변수 등 제외 설정
-
-`db.py`
-- MySQL 데이터베이스 연결 및 관리
-- zone_id 계산 및 격자 구역 생성
-- 리뷰 및 공공 안전 데이터 저장·조회
-- 최종 안전 점수 계산
-
-`main.py`
-- FastAPI 서버 실행 및 API 엔드포인트 관리
-- AI 서버 연동 및 리뷰 위험도 분석 요청
-- 리뷰 저장·조회 API 제공
-- 지도 시각화 및 경로 안전도 API 제공
-- 헬스체크 API 제공
-
-`schemas.py`
-- 요청/응답 데이터 구조 정의
-- API 데이터 검증 및 타입 관리
-
-`.env.example`
-- 로컬 개발 환경을 위한 환경 변수 예시 파일
-- DB 연결 정보 및 API 주소 예시 제공
-
-`requirements.txt`
-- 백엔드 실행에 필요한 라이브러리 목록
-- 동일한 개발 환경 재현을 위한 의존성 관리 파일
-
-#### ai
-`.gitignore`
-- 깃허브에 업로드하지 않을 파일 목록 관리
-
-`ai_scoring.py`
-- AI 점수 계산 관련 보조 파일
-- AI 서버 점수 계산 로직 및 보조 연산 분리 관리
-
-`main.py`
-- FastAPI 기반 AI 서버 메인 파일
-- 사용자 리뷰 기반 안전 점수 계산 및 구역별 점수 기반 최적 경로 순차 정렬
-
-`requirements.txt`
-- AI 서버 실행에 필요한 라이브러리 목록
-- 서버 환경 구축을 위한 의존성 관리 파일
+| 폴더 | 설명 |
+|---|---|
+| `.github/workflows` | 공공데이터 수집 등 자동화 작업 설정 |
+| `ai` | 리뷰 분석 및 경로 안전도 평가를 위한 AI 서버 코드 |
+| `backend` | API, 회원 인증, DB 연동 및 안전 점수 계산을 처리하는 백엔드 코드 |
+| `doc` | 서비스 기획, 분석 및 테스트 안내 등 프로젝트 문서 |
+| `frontend` | 지도, 경로 검색, 리뷰 및 회원 화면을 구현한 프론트엔드 코드 |
+| `team` | 팀 협업 규칙 등 팀 운영 문서 |
+| `tests` | 주요 기능 검증을 위한 테스트 코드 및 프로젝트 소개 페이지 |
 
 
 ---
