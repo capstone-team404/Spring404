@@ -3,6 +3,7 @@ import SafetyMap from './SafetyMap';
 import { clearToken, getMe, getToken, login, logout, saveToken, signup, completeNaverConnection } from './authApi';
 import './auth.css';
 import './home.css';
+import './interface.css';
 import NaverConnection from './NaverConnection';
 
 const naverReturn = new URLSearchParams(window.location.hash.slice(1));
@@ -191,6 +192,7 @@ export default function App() {
   const [mode, setMode] = useState('loading');
   const [user, setUser] = useState(null);
   const [showSplash, setShowSplash] = useState(true);
+  const [logoReady, setLogoReady] = useState(false);
   const [notice, setNotice] = useState('');
   const route = (next) => {
     setUser(next);
@@ -209,8 +211,14 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!logoReady) return undefined;
     const timer = window.setTimeout(() => setShowSplash(false), 1100);
     return () => window.clearTimeout(timer);
+  }, [logoReady]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setShowSplash(false), 5000);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
@@ -253,7 +261,7 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [mode]);
 
-  if (showSplash) return <main className="brand-splash" aria-label="여기지 시작 화면"><div className="brand-wordmark">여기지<span>!</span></div></main>;
+  if (showSplash) return <main className="brand-splash" aria-label="여기지 시작 화면"><img className="brand-logo" src="/images/hereji-logo.png" alt="여기지 로고" width="360" height="360" fetchPriority="high" onLoad={() => setLogoReady(true)} onError={() => setLogoReady(true)} /></main>;
   if (mode === 'loading') return <main className="auth-page" role="status">계정을 확인하고 있어요…</main>;
   if (mode === 'login' || mode === 'signup') {
     return <AuthCard mode={mode} setMode={setMode} onAuthenticated={route} notice={notice} />;
