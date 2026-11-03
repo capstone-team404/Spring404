@@ -22,6 +22,7 @@ import { authFetch } from './authApi';
 import AdminPage from './AdminPage';
 import MyPage from './MyPage';
 import SideMenu from './SideMenu';
+import RoutePlanner from './RoutePlanner';
 import { ServiceGuide } from './HomePanel';
 
 const REPORT_REASONS = [
@@ -39,9 +40,12 @@ const REPORT_REASONS = [
 function SafetyMap({ user, onUserChange, onLogout }) {
   const [screen, setScreen] = useState('map');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [routePlannerOpen, setRoutePlannerOpen] = useState(false);
+  const openRoutes = () => { setMenuOpen(false); setSearchScreenOpen(false); setRoutePlannerOpen(true); };
   const [myPageTarget, setMyPageTarget] = useState({ tab: 'home', activity: 'written' });
   const openMenuPage = (target) => {
     setMenuOpen(false);
+    if (target === 'routes') { openRoutes(); return; }
     if (target === 'map') { setScreen('map'); return; }
     if (target === 'guide' || target === 'admin') { setScreen(target); return; }
     setMyPageTarget({ tab: target === 'liked' ? 'activity' : target === 'profile' ? 'home' : target, activity: target === 'liked' ? 'liked' : 'written' });
@@ -443,7 +447,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       searchOption: String(option),
     };
 
-    const res = await authFetch(
+    const res = await fetch(
       'https://apis.openapi.sk.com/tmap/routes/pedestrian?version=1&format=json',
       {
         method: 'POST',
@@ -672,7 +676,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     resetRoute();
     setSelectedPlace({
       id: `zone-${nextZone.zone_id}`,
-      name: `Zone ${nextZone.zone_id}의 안전 정보`,
+      name: `구역 ${nextZone.zone_id} 안전 정보`,
       address: '선택한 지도 구역',
       icon: '',
       iconBackgroundColor: '#ffffff',
@@ -1135,63 +1139,25 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     }
   };
 
-  const searchPlaces = () => {
-    if (!searchText.trim()) {
-      alert('검색어를 입력해주세요');
-      return;
-    }
-
-    setSearchScreenOpen(true);
-    setSearchLoading(true);
-    setSearchError('');
-    setSearchResults([]);
-
+  const lookupPlaces = async (keyword, signal) => {
     const currentCenter = getLatLngPosition(map?.getCenter?.());
-    const params = new URLSearchParams({
-      version: '1',
-      format: 'json',
-      searchKeyword: searchText.trim(),
-      count: '12',
-      radius: '20',
-      centerLat: String(currentCenter.lat),
-      centerLon: String(currentCenter.lng),
-      reqCoordType: 'WGS84GEO',
-      resCoordType: 'WGS84GEO',
-    });
+    const params = new URLSearchParams({ version: '1', format: 'json', searchKeyword: keyword.trim(), count: '12', radius: '20',
+      centerLat: String(currentCenter.lat), centerLon: String(currentCenter.lng), reqCoordType: 'WGS84GEO', resCoordType: 'WGS84GEO' });
+    const res = await fetch(`https://apis.openapi.sk.com/tmap/pois?${params}`, { signal, headers: { appKey: TMAP_APP_KEY, accept: 'application/json' } });
+    if (!res.ok) throw new Error('장소 검색에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+    const data = await res.json();
+    return (data.searchPoiInfo?.pois?.poi || []).filter(place => Number.isFinite(Number(place.frontLat || place.noorLat || place.lat)) && Number.isFinite(Number(place.frontLon || place.noorLon || place.lon || place.lng))).map(formatTmapPoi);
+  };
 
-    authFetch(`https://apis.openapi.sk.com/tmap/pois?${params}`, {
-      headers: {
-        appKey: TMAP_APP_KEY,
-        accept: 'application/json',
-      },
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error('검색 요청 실패');
-        const data = await res.json();
-        const pois = data.searchPoiInfo?.pois?.poi || [];
-
-        const formatted = pois
-          .filter((place) => {
-            const lat = Number(place.frontLat || place.noorLat || place.lat);
-            const lng = Number(place.frontLon || place.noorLon || place.lon || place.lng);
-            return Number.isFinite(lat) && Number.isFinite(lng);
-          })
-          .map(formatTmapPoi);
-
-        if (formatted.length === 0) {
-          setSearchError('검색 결과가 없습니다.');
-          return;
-        }
-
-        setSearchResults(formatted);
-      })
-      .catch((err) => {
-        console.error(err);
-        setSearchError(err.message || '검색 중 오류가 발생했습니다.');
-      })
-      .finally(() => {
-        setSearchLoading(false);
-      });
+  const searchPlaces = async () => {
+    if (!searchText.trim()) { setSearchScreenOpen(true); setSearchError('검색어를 입력해 주세요.'); return; }
+    setSearchScreenOpen(true); setSearchLoading(true); setSearchError(''); setSearchResults([]);
+    try {
+      const places = await lookupPlaces(searchText);
+      setSearchResults(places);
+      if (!places.length) setSearchError('검색 결과가 없습니다.');
+    } catch (err) { setSearchError(err.message); }
+    finally { setSearchLoading(false); }
   };
 
   const handleReviewPlaceSelect = async ({ position }) => {
@@ -1397,7 +1363,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       style={{
         width: '100%',
         height: '100dvh',
-        minHeight: '100vh',
+        minHeight: 0,
         backgroundColor: '#e5e7eb',
         display: 'flex',
         justifyContent: 'center',
@@ -1415,7 +1381,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
           width: '100%',
           maxWidth: '430px',
           height: '100dvh',
-          minHeight: '100vh',
+          minHeight: 0,
           overflow: 'hidden',
           backgroundColor: '#f8fafc',
         }}
@@ -1432,9 +1398,21 @@ function SafetyMap({ user, onUserChange, onLogout }) {
           searchResults={searchResults}
           openPlaceDetail={openPlaceDetail}
           onOpenMenu={() => setMenuOpen(true)}
+          onOpenRoutes={openRoutes}
         />
 
         {menuOpen && <SideMenu user={user} onClose={() => setMenuOpen(false)} onNavigate={openMenuPage} onLogout={onLogout} />}
+
+        {routePlannerOpen && <RoutePlanner initialStart={startPoint} initialEnd={endPoint} onLookup={lookupPlaces}
+          onUseLocation={async () => {
+            const position = myLocation || await moveToMyLocation();
+            return position ? { id: 'my-location-start', name: '현재 위치', position } : null;
+          }}
+          onClose={() => setRoutePlannerOpen(false)}
+          onSubmit={(origin, destination) => {
+            setStartPoint(origin); setEndPoint(destination); setSelectedPlace(null); setSelectedZone(null);
+            setRoutePlannerOpen(false); requestRoutes(origin, destination);
+          }} />}
 
         {reportTargetId && (
           <div
@@ -1599,7 +1577,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
           startDrag={startDrag}
           toggleSheet={toggleSheet}
           homePanelProps={{ zones: mapZones, myLocation, expanded: sheetHeight >= 250, onSelectZone: openZoneDetail,
-            onSearch: () => setSearchScreenOpen(true), onOpenActivity: () => openMenuPage('activity'), onOpenGuide: () => setScreen('guide') }}
+            onSearch: () => setSearchScreenOpen(true), onOpenRoutes: openRoutes, onOpenActivity: () => openMenuPage('activity'), onOpenGuide: () => setScreen('guide') }}
           isRouteView={isRouteView}
           closeRouteView={closeRouteView}
           startPoint={startPoint}

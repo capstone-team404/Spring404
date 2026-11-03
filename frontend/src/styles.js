@@ -18,7 +18,7 @@ export const startDotStyle = {
   height: 10,
   borderRadius: '50%',
   background: '#2563eb',
-  boxShadow: '0 0 6px rgba(37, 99, 235, 0.55)',
+  boxShadow: 'none',
 };
 
 export const endDotStyle = {
@@ -26,7 +26,7 @@ export const endDotStyle = {
   height: 10,
   borderRadius: '50%',
   background: '#ef4444',
-  boxShadow: '0 0 6px rgba(239, 68, 68, 0.5)',
+  boxShadow: 'none',
 };
 
 export const locationLabelStyle = {
@@ -63,14 +63,14 @@ export const placeActionStyle = (backgroundColor, color) => ({
   borderRadius: 9,
   backgroundColor,
   color,
-  fontWeight: 900,
+  fontWeight: 700,
   fontSize: 13,
 });
 
 export const noticeStyle = {
   margin: '8px 0 12px',
   color: '#14532d',
-  fontWeight: 800,
+  fontWeight: 600,
   fontSize: 14,
   textAlign: 'center',
 };
@@ -85,14 +85,14 @@ export const scoreBoxStyle = {
 export const scoreLabelStyle = {
   color: '#6b7280',
   fontSize: 12,
-  fontWeight: 800,
+  fontWeight: 600,
   marginBottom: 5,
 };
 
 export const scoreValueStyle = {
   color: '#111827',
   fontSize: 18,
-  fontWeight: 900,
+  fontWeight: 700,
 };
 
 export const targetLineTopStyle = {
