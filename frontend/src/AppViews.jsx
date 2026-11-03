@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import FacilityInventory from './FacilityInventory';
 import HomePanel from './HomePanel';
+import Icon from './Icon';
+import { observeMapTaps, readLatLng, touchToPosition, zoneAtPosition } from './mapInteractions';
 
 import {
   center,
@@ -38,191 +40,23 @@ import {
   targetDotStyle,
 } from './styles';
 
-export function SearchPanel({
-  searchText,
-  setSearchText,
-  setSearchScreenOpen,
-  searchPlaces,
-  searchScreenOpen,
-  closeSearch,
-  searchLoading,
-  searchError,
-  searchResults,
-  openPlaceDetail,
-  onOpenMenu,
-}) {
-  return (
-    <>
-      <div
-        style={{
-          position: 'absolute',
-          top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
-          left: 12,
-          right: 12,
-          zIndex: 30,
-          display: 'flex',
-          gap: 8,
-        }}
-      >
-        <button
-          type="button"
-          onClick={onOpenMenu}
-          aria-label="메뉴 열기"
-          style={{
-            width: 44,
-            height: 44,
-            border: 'none',
-            borderRadius: 14,
-            backgroundColor: '#ffffff',
-            color: '#14532d',
-            boxShadow: '0 8px 24px rgba(15, 23, 42, 0.18)',
-            display: 'grid',
-            placeItems: 'center',
-            padding: 0,
-            flex: '0 0 auto',
-          }}
-        >
-          <span
-            aria-hidden="true"
-            style={{
-              width: 18,
-              height: 14,
-              display: 'grid',
-              gap: 4,
-            }}
-          >
-            <span style={{ height: 2, backgroundColor: '#14532d', borderRadius: 999 }} />
-            <span style={{ height: 2, backgroundColor: '#14532d', borderRadius: 999 }} />
-            <span style={{ height: 2, backgroundColor: '#14532d', borderRadius: 999 }} />
-          </span>
-        </button>
-
-        <input
-          value={searchText}
-          onFocus={() => setSearchScreenOpen(true)}
-          onChange={(e) => setSearchText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') searchPlaces();
-          }}
-          placeholder="장소 검색"
-          style={{
-            flex: 1,
-            height: 44,
-            border: 'none',
-            borderRadius: 14,
-            padding: '0 14px',
-            fontSize: 15,
-            boxShadow: '0 8px 24px rgba(15, 23, 42, 0.18)',
-            outline: 'none',
-          }}
-        />
-
-        <button
-          onClick={searchPlaces}
-          style={{
-            width: 58,
-            border: 'none',
-            borderRadius: 14,
-            backgroundColor: '#14532d',
-            color: 'white',
-            fontWeight: 800,
-            boxShadow: '0 8px 24px rgba(15, 23, 42, 0.18)',
-          }}
-        >
-          검색
-        </button>
-      </div>
-
-      {searchScreenOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            zIndex: 25,
-            backgroundColor: '#f8fafc',
-            padding:
-              'calc(env(safe-area-inset-top, 0px) + 72px) 14px calc(env(safe-area-inset-bottom, 0px) + 20px)',
-            overflowY: 'auto',
-            WebkitOverflowScrolling: 'touch',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 14,
-            }}
-          >
-            <strong style={{ fontSize: 18 }}>검색 결과</strong>
-            <button
-              onClick={closeSearch}
-              style={{
-                border: 'none',
-                backgroundColor: '#e5e7eb',
-                borderRadius: 999,
-                padding: '8px 12px',
-                fontWeight: 700,
-              }}
-            >
-              닫기
-            </button>
-          </div>
-
-          {searchLoading && <p>검색 중...</p>}
-          {searchError && <p style={{ color: '#ef4444' }}>{searchError}</p>}
-
-          {searchResults.map((place, index) => (
-            <button
-              key={`${place.id}-${place.position?.lat}-${place.position?.lng}-${index}`}
-              onClick={() => openPlaceDetail(place)}
-              style={{
-                width: '100%',
-                display: 'block',
-                textAlign: 'left',
-                border: '1px solid #e5e7eb',
-                backgroundColor: 'white',
-                borderRadius: 14,
-                padding: 14,
-                marginBottom: 10,
-                boxShadow: '0 4px 14px rgba(15, 23, 42, 0.06)',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  fontSize: 16,
-                  fontWeight: 800,
-                  color: '#111827',
-                  marginBottom: 4,
-                }}
-              >
-                {place.icon ? (
-                  <>
-                    <img
-                      src={place.icon}
-                      alt=""
-                      onError={handlePlaceIconError}
-                      style={{ width: 18, height: 18 }}
-                    />
-                    <span style={{ display: 'none' }}>📍</span>
-                  </>
-                ) : (
-                  <span>📍</span>
-                )}
-                <span>{place.name}</span>
-              </div>
-              <div style={{ fontSize: 13, color: '#6b7280' }}>
-                {place.address || '주소 정보 없음'}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </>
-  );
+export function SearchPanel({ searchText, setSearchText, setSearchScreenOpen, searchPlaces, searchScreenOpen, closeSearch, searchLoading, searchError, searchResults, openPlaceDetail, onOpenMenu, onOpenRoutes }) {
+  return <>
+    <form className="map-searchbar" onSubmit={event => { event.preventDefault(); searchPlaces(); }}>
+      <button type="button" className="icon-button" onClick={onOpenMenu} aria-label="메뉴 열기"><Icon name="menu" /></button>
+      <input aria-label="장소 검색" value={searchText} onFocus={() => setSearchScreenOpen(true)} onChange={event => setSearchText(event.target.value)} placeholder="장소, 주소 검색" />
+      <button type="submit" className="icon-button" aria-label="검색"><Icon name="search" /></button>
+      <span className="searchbar-divider" />
+      <button type="button" className="searchbar-route" onClick={onOpenRoutes}><Icon name="route" size={18} /><span>길찾기</span></button>
+    </form>
+    {searchScreenOpen && <section className="place-search-screen" aria-label="장소 검색 결과">
+      <header><h2>검색 결과</h2><button type="button" className="icon-button" onClick={closeSearch} aria-label="검색 닫기"><Icon name="close" /></button></header>
+      {searchLoading && <p role="status">검색 중입니다…</p>}
+      {searchError && <p className="search-message error" role="alert">{searchError}</p>}
+      {!searchLoading && !searchError && !searchResults.length && <p className="search-message">장소 이름이나 주소를 입력해 검색하세요.</p>}
+      {searchResults.map((place, index) => <button type="button" className="place-result" key={`${place.id}-${index}`} onClick={() => openPlaceDetail(place)}><Icon name="pin" /><span><strong>{place.name}</strong><small>{place.address}</small></span><Icon name="chevron" size={16} /></button>)}
+    </section>}
+  </>;
 }
 
 export function MapView({
@@ -244,6 +78,18 @@ export function MapView({
   const markersRef = useRef([]);
   const zonePolygonsRef = useRef([]);
   const onZoneSelectRef = useRef(onZoneSelect);
+  const placeSelectRef = useRef(handleReviewPlaceSelect);
+  const zonesRef = useRef(mapZones);
+  const tapObserverRef = useRef(null);
+  const lastSelectionRef = useRef({ id: null, time: 0 });
+  placeSelectRef.current = handleReviewPlaceSelect;
+  zonesRef.current = mapZones;
+  const selectZone = zone => {
+    const now = performance.now();
+    if (lastSelectionRef.current.id === zone.zone_id && now - lastSelectionRef.current.time < 300) return;
+    lastSelectionRef.current = { id: zone.zone_id, time: now };
+    onZoneSelectRef.current?.(zone);
+  };
 
   useEffect(() => {
     onZoneSelectRef.current = onZoneSelect;
@@ -278,18 +124,28 @@ export function MapView({
     mapRef.current = mapInstance;
     setMap(mapInstance);
 
-    mapInstance.addListener('click', (event) => {
-      const latLng = event.latLng || event.latlng;
-      if (!latLng) return;
-
-      handleReviewPlaceSelect({
-        position: {
-          lat: typeof latLng.lat === 'function' ? latLng.lat() : latLng._lat ?? latLng.lat,
-          lng: typeof latLng.lng === 'function' ? latLng.lng() : latLng._lng ?? latLng.lng,
-        },
-      });
+    const selectPosition = position => {
+      if (!position) return;
+      const zone = zoneAtPosition(zonesRef.current, position);
+      if (zone) selectZone(zone);
+      else placeSelectRef.current?.({ position });
+    };
+    const onClick = event => {
+      if (tapObserverRef.current?.ignoreSyntheticClick()) return;
+      selectPosition(readLatLng(event.latLng || event.latlng));
+    };
+    mapInstance.addListener('click', onClick);
+    const taps = observeMapTaps(containerRef.current, point => {
+      selectPosition(touchToPosition(mapInstance, containerRef.current, point));
     });
-  }, [handleReviewPlaceSelect, setMap, tmapReady]);
+    tapObserverRef.current = taps;
+    return () => {
+      taps.dispose();
+      mapInstance.removeListener?.('click', onClick);
+      tapObserverRef.current = null;
+      mapRef.current = null;
+    };
+  }, [setMap, tmapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -322,7 +178,7 @@ export function MapView({
       });
 
       polygon.addListener?.('click', () => {
-        onZoneSelectRef.current?.(zone);
+        if (!tapObserverRef.current?.ignoreSyntheticClick()) selectZone(zone);
       });
 
       zonePolygonsRef.current.push(polygon);
@@ -378,7 +234,7 @@ export function MapView({
 
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
-      <div ref={containerRef} style={mapStyle} />
+      <div ref={containerRef} className="map-canvas" aria-label="안전 지도" style={mapStyle} />
     </div>
   );
 }
@@ -528,7 +384,7 @@ export function BottomSheet({
               padding: '18px 16px',
               color: '#111827',
               fontSize: 15,
-              fontWeight: 900,
+              fontWeight: 700,
               lineHeight: 1.45,
               textAlign: 'center',
             }}
@@ -537,18 +393,18 @@ export function BottomSheet({
           </div>
         </div>
       )}
-      <div aria-label="안전점수 범례" style={{ position: 'absolute', top: 74, left: 12, zIndex: 19, padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,.96)', boxShadow: '0 2px 8px #0002', fontSize: 12 }}>
+      <div className="map-legend" aria-label="안전점수 범례" style={{ position: 'absolute', top: 74, left: 12, zIndex: 19, padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,.96)', boxShadow: '0 2px 8px #0002', fontSize: 12 }}>
         {[['#00875a','높음 ≥3.5'],['#eab308','보통 ≥2.0'],['#dc2626','낮음 <2.0'],['#64748b','정보 부족']].map(([color,label]) => <span key={label} style={{ display: 'inline-flex', alignItems: 'center', marginRight: 10 }}><i style={{ width: 10, height: 10, background: color, display: 'inline-block', marginRight: 4 }} />{label}</span>)}
       </div>
       {false && (
-      <div style={{ position: 'fixed', top: 12, right: 12, zIndex: 45, display: 'flex', gap: 7, alignItems: 'center', padding: '7px 9px', borderRadius: 999, background: 'rgba(255,255,255,.95)', boxShadow: '0 4px 16px rgba(0,0,0,.12)', fontSize: 12, fontWeight: 800 }}>
+      <div style={{ position: 'fixed', top: 12, right: 12, zIndex: 45, display: 'flex', gap: 7, alignItems: 'center', padding: '7px 9px', borderRadius: 999, background: 'rgba(255,255,255,.95)', boxShadow: '0 4px 16px rgba(0,0,0,.12)', fontSize: 12, fontWeight: 600 }}>
         <span>{currentUser?.nickname}</span>
-        <button type="button" onClick={onOpenMyPage} style={{ border: 0, borderRadius: 999, padding: '5px 8px', fontWeight: 800, background: '#ecfdf5', color: '#047857' }}>마이페이지</button>
-        <button type="button" onClick={onLogout} style={{ border: 0, borderRadius: 999, padding: '5px 8px', fontWeight: 800 }}>로그아웃</button>
+        <button type="button" onClick={onOpenMyPage} style={{ border: 0, borderRadius: 999, padding: '5px 8px', fontWeight: 600, background: '#ecfdf5', color: '#047857' }}>마이페이지</button>
+        <button type="button" onClick={onLogout} style={{ border: 0, borderRadius: 999, padding: '5px 8px', fontWeight: 600 }}>로그아웃</button>
       </div>
       )}
 
-      <div
+      <div className="map-bottom-sheet"
       style={{
         position: 'absolute',
         left: 0,
@@ -587,7 +443,7 @@ export function BottomSheet({
                 color: '#374151',
                 borderRadius: 999,
                 padding: '8px 11px',
-                fontWeight: 800,
+                fontWeight: 600,
               }}
             >
               닫기
@@ -600,9 +456,9 @@ export function BottomSheet({
 
           <div
             style={{
-              textAlign: 'center',
-              fontSize: 24,
-              fontWeight: 900,
+              textAlign: 'left',
+              fontSize: 20,
+              fontWeight: 700,
               color: '#111827',
               marginBottom: 16,
             }}
@@ -624,7 +480,7 @@ export function BottomSheet({
                 textAlign: 'left',
                 border:
                   selectedRouteIndex === idx
-                    ? '2px solid #16a34a'
+                    ? '1.5px solid #176448'
                     : '1px solid #e5e7eb',
                 backgroundColor:
                   selectedRouteIndex === idx ? '#f8fafc' : 'white',
@@ -635,13 +491,12 @@ export function BottomSheet({
             >
               <div
                 style={{
-                  fontWeight: 900,
+                  fontWeight: 700,
                   color: '#111827',
                   marginBottom: 8,
                 }}
               >
-                {idx === 0 ? 'Min Score 추천 · ' : ''}
-                {route.name}
+                {idx === 0 ? '안전점수 우선 경로' : route.name}
               </div>
 
               <div
@@ -657,21 +512,21 @@ export function BottomSheet({
               <div
                 style={{
                   color: getSafetyColor(Number(route.minSafetyScore || 0)),
-                  fontWeight: 900,
+                  fontWeight: 700,
                   fontSize: 14,
                 }}
               >
                 최저 {Number(route.minSafetyScore || 0).toFixed(2)} / 5 · 평균{' '}
                 {Number(route.averageSafetyScore || 0).toFixed(2)} / 5
               </div>
-              <div style={{ marginTop: 9, color: '#111827', fontSize: 13, fontWeight: 900 }}>
+              <div style={{ marginTop: 9, color: '#111827', fontSize: 13, fontWeight: 700 }}>
                 {route.summary || '경로의 가장 취약한 구간을 우선 비교했습니다.'}
               </div>
               <div style={{ marginTop: 5, color: '#64748b', fontSize: 12, lineHeight: 1.5 }}>
                 {route.reason || '최저 안전점수가 높은 순서로 추천하며, 동점이면 평균 점수와 소요 시간을 비교합니다.'}
               </div>
               {Number(route.coverageRatio || 0) < 0.5 && (
-                <div style={{ marginTop: 7, color: '#b45309', fontSize: 11, fontWeight: 800 }}>
+                <div style={{ marginTop: 7, color: '#b45309', fontSize: 11, fontWeight: 600 }}>
                   안전 데이터 포함률이 낮아 결과를 참고용으로 확인해 주세요.
                 </div>
               )}
@@ -693,7 +548,7 @@ export function BottomSheet({
               <div
                 style={{
                   fontSize: 21,
-                  fontWeight: 900,
+                  fontWeight: 700,
                   color: '#111827',
                   marginBottom: 5,
                   overflow: 'hidden',
@@ -701,7 +556,7 @@ export function BottomSheet({
                   whiteSpace: 'nowrap',
                 }}
               >
-                Zone {selectedZone.zone_id}의 안전 정보
+                구역 {selectedZone.zone_id} 안전 정보
               </div>
               <div style={{ fontSize: 13, color: '#6b7280' }}>
                 Zone {selectedZone.zone_id}
@@ -716,7 +571,7 @@ export function BottomSheet({
                 color: '#374151',
                 borderRadius: 999,
                 padding: '8px 11px',
-                fontWeight: 800,
+                fontWeight: 600,
                 flex: '0 0 auto',
               }}
             >
@@ -773,7 +628,7 @@ export function BottomSheet({
                   alignItems: 'center',
                   gap: 8,
                   fontSize: 21,
-                  fontWeight: 900,
+                  fontWeight: 700,
                   color: '#111827',
                   marginBottom: 5,
                 }}
@@ -833,7 +688,7 @@ export function BottomSheet({
                 color: '#374151',
                 borderRadius: 999,
                 padding: '8px 11px',
-                fontWeight: 800,
+                fontWeight: 600,
                 flex: '0 0 auto',
               }}
             >
@@ -875,7 +730,7 @@ export function BottomSheet({
           >
             <div style={{ ...scoreBoxStyle, textAlign: 'center' }}>
               <div style={scoreLabelStyle}>평균 평점</div>
-              <div style={scoreValueStyle}>⭐ {getUserAverage(reviews)}</div>
+              <div style={scoreValueStyle}>{reviews.length ? <><span style={{ color: '#aa852d' }}>★</span> {getUserAverage(reviews)}</> : <span style={{ fontSize: 13, color: '#87928a' }}>리뷰 없음</span>}</div>
             </div>
 
             <div style={{ ...scoreBoxStyle, textAlign: 'center' }}>
@@ -895,7 +750,7 @@ export function BottomSheet({
             style={{
               borderTop: '1px solid #eeeeee',
               paddingTop: 12,
-              fontWeight: 900,
+              fontWeight: 700,
               color: '#111827',
               marginBottom: 8,
               textAlign: 'center',
@@ -988,7 +843,7 @@ export function BottomSheet({
                       gap: 8,
                       color: '#166534',
                       fontSize: 12,
-                      fontWeight: 900,
+                      fontWeight: 700,
                     }}
                   >
                     <span>AI 리뷰 분석</span>
@@ -1008,7 +863,7 @@ export function BottomSheet({
                             backgroundColor: '#dcfce7',
                             color: '#166534',
                             fontSize: 11,
-                            fontWeight: 800,
+                            fontWeight: 600,
                           }}
                         >
                           #{tag}
@@ -1048,7 +903,7 @@ export function BottomSheet({
                     borderRadius: 999,
                     backgroundColor: '#fee2e2',
                     color: '#b91c1c',
-                    fontWeight: 900,
+                    fontWeight: 700,
                     fontSize: 0,
                   }}
                 >
@@ -1124,7 +979,7 @@ export function BottomSheet({
                     backgroundColor:
                       review.report_status === 'under_review' ? '#fef3c7' : '#eff6ff',
                     color: review.report_status === 'under_review' ? '#92400e' : '#1d4ed8',
-                    fontWeight: 900,
+                    fontWeight: 700,
                     fontSize: 0,
                   }}
                 >
@@ -1151,7 +1006,7 @@ export function BottomSheet({
                     borderRadius: 999,
                     backgroundColor: '#ecfdf5',
                     color: '#047857',
-                    fontWeight: 900,
+                    fontWeight: 700,
                     fontSize: 0,
                   }}
                 >
@@ -1168,7 +1023,7 @@ export function BottomSheet({
                     borderRadius: 999,
                     backgroundColor: '#fff7ed',
                     color: '#b91c1c',
-                    fontWeight: 900,
+                    fontWeight: 700,
                     fontSize: 0,
                   }}
                 >
@@ -1186,7 +1041,7 @@ export function BottomSheet({
                         borderRadius: 999,
                         backgroundColor: '#eff6ff',
                         color: '#1d4ed8',
-                        fontWeight: 900,
+                        fontWeight: 700,
                         fontSize: 0,
                       }}
                     >
@@ -1202,7 +1057,7 @@ export function BottomSheet({
                         borderRadius: 999,
                         backgroundColor: '#f9fafb',
                         color: '#374151',
-                        fontWeight: 900,
+                        fontWeight: 700,
                         fontSize: 0,
                       }}
                     >
@@ -1235,7 +1090,7 @@ export function BottomSheet({
                   backgroundColor: '#eff6ff',
                   color: '#1d4ed8',
                   fontSize: 12,
-                  fontWeight: 900,
+                  fontWeight: 700,
                 }}
               >
                 <span>리뷰 수정 중</span>
@@ -1246,7 +1101,7 @@ export function BottomSheet({
                     borderRadius: 999,
                     backgroundColor: '#dbeafe',
                     color: '#1d4ed8',
-                    fontWeight: 900,
+                    fontWeight: 700,
                     padding: '5px 9px',
                   }}
                 >
@@ -1318,7 +1173,7 @@ export function BottomSheet({
                     padding: 9,
                     fontSize: 12,
                     color: '#4b5563',
-                    fontWeight: 800,
+                    fontWeight: 600,
                   }}
                 >
                   <span
@@ -1337,7 +1192,7 @@ export function BottomSheet({
                       borderRadius: 999,
                       backgroundColor: '#fee2e2',
                       color: '#b91c1c',
-                      fontWeight: 900,
+                      fontWeight: 700,
                       padding: '6px 9px',
                       flex: '0 0 auto',
                     }}
@@ -1391,7 +1246,7 @@ export function BottomSheet({
                         borderRadius: 999,
                         backgroundColor: 'rgba(185, 28, 28, 0.92)',
                         color: '#ffffff',
-                        fontWeight: 900,
+                        fontWeight: 700,
                       }}
                     >
                       ×
@@ -1412,7 +1267,7 @@ export function BottomSheet({
                 borderRadius: 12,
                 backgroundColor: '#f9fafb',
                 color: '#374151',
-                fontWeight: 900,
+                fontWeight: 700,
                 fontSize: 13,
               }}
             >
@@ -1439,7 +1294,7 @@ export function BottomSheet({
                 borderRadius: 12,
                 backgroundColor: '#14532d',
                 color: 'white',
-                fontWeight: 900,
+                fontWeight: 700,
               }}
             >
               {editingReviewId ? '리뷰 수정 완료' : '이 지역에 리뷰 작성'}

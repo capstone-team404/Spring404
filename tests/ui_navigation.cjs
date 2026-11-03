@@ -13,16 +13,35 @@ const zones = [0, 1, 2, 3, 4].map(i => ({ zone_id: 201 + i, row_index: 10, col_i
 
 async function prepare(context, { session = true, verified = true } = {}) {
   const errors = [];
-  const state = { verified, completes: 0 };
+  const state = { verified, completes: 0, zoneReads: 0, routeCalls: 0 };
   await context.addInitScript(({ session }) => {
     if (session) localStorage.setItem('hereji_access_token', 'ui-test-token');
     class LatLng { constructor(lat, lng) { this._lat = lat; this._lng = lng; } lat() { return this._lat; } lng() { return this._lng; } }
-    class MapObject { constructor(el) { if (el?.style) el.style.background = '#e5eee4'; } addListener() {} setMap() {} setCenter() {} panTo() {} setZoom() {} getZoom() { return 17; } }
-    window.Tmapv2 = { Map: MapObject, Marker: MapObject, Polygon: MapObject, Polyline: MapObject, LatLng };
+    class MapObject {
+      constructor(el) { this.el = el?.style ? el : null; if (this.el) this.el.style.background = '#edf0eb'; }
+      addListener(type, handler) { if (this.el && type === 'click') this.el.addEventListener('click', () => handler({ latLng: new LatLng(37.55745, 126.92455) })); }
+      removeListener() {} setMap() {} setCenter() {} panTo() {} setZoom() {} fitBounds() {}
+      getZoom() { return 17; } getCenter() { return new LatLng(37.55745, 126.92455); }
+      getBounds() { return { getNorthEast: () => new LatLng(37.561, 126.94), getSouthWest: () => new LatLng(37.554, 126.92) }; }
+    }
+    class LatLngBounds { extend() {} }
+    window.Tmapv2 = { Map: MapObject, Marker: MapObject, Polygon: MapObject, Polyline: MapObject, LatLng, LatLngBounds };
   }, { session });
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.origin === base) return route.continue();
+    if (url.origin === 'https://apis.openapi.sk.com') {
+      assert.equal(route.request().headers()['authorization'], undefined, 'Hereji session must not be sent to TMAP');
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } });
+      if (url.pathname.endsWith('/pois')) {
+        const destination = url.searchParams.get('searchKeyword').includes('카페');
+        return route.fulfill({ json: { searchPoiInfo: { pois: { poi: [{ id: destination ? 'cafe' : 'hotel', name: destination ? '테스트 카페' : '테스트 호텔', frontLat: destination ? '37.558' : '37.557', frontLon: destination ? '126.928' : '126.924', upperAddrName: '서울', middleAddrName: '마포구', lowerAddrName: '홍익로' }] } } }, headers: { 'access-control-allow-origin': '*' } });
+      }
+      if (url.pathname.endsWith('/pedestrian')) {
+        state.routeCalls++;
+        return route.fulfill({ json: { features: [{ geometry: { type: 'LineString', coordinates: [[126.924,37.557],[126.928,37.558]] }, properties: { totalDistance: 480, totalTime: 360 } }] }, headers: { 'access-control-allow-origin': '*' } });
+      }
+    }
     if (url.origin !== 'http://localhost:8000') return route.abort();
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } });
     const user = { id: 1, nickname: '여행자', email: 'test@example.com', gender_verified: state.verified,
@@ -33,7 +52,8 @@ async function prepare(context, { session = true, verified = true } = {}) {
     else if (url.pathname === '/auth/verification-config') data = { mode: 'naver', naver_configured: true };
     else if (url.pathname === '/auth/naver/complete') { state.verified = true; state.completes++; data = { message: 'connected' }; }
     else if (url.pathname === '/map/zones') data = zones;
-    else if (url.pathname === '/reviews') data = [];
+    else if (url.pathname === '/reviews') { state.zoneReads++; data = []; }
+    else if (url.pathname === '/routes/safety-rank') { const payload = route.request().postDataJSON(); data = { routes: payload.routes.map(row => ({ ...row, minSafetyScore: 2.7, averageSafetyScore: 3.2, coverageRatio: 1 })) }; }
     else if (url.pathname.startsWith('/safety-score/')) data = zones[0];
     else if (url.pathname === '/me/activity') data = { summary: {}, recent_reviews: [] };
     else if (url.pathname === '/me/reports') data = { filed_reports: [], received_reports: [] };
@@ -57,8 +77,10 @@ async function shot(page, name) {
     const { page, errors } = await prepare(ctx);
     await page.goto(base);
     await page.getByLabel('여기지 시작 화면').waitFor();
+    await page.getByAltText('여기지 로고').waitFor();
+    await page.waitForTimeout(350);
     await shot(page, 'splash');
-    await page.getByRole('heading', { name: '어디로 걸어볼까요?' }).waitFor();
+    await page.getByRole('heading', { name: '주변 안전 정보' }).waitFor();
     const handle = page.getByRole('button', { name: '정보 패널 펼치기' });
     const box = await handle.boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -75,11 +97,13 @@ async function shot(page, name) {
     await page.getByRole('button', { name: '메뉴 열기' }).click();
     await page.getByRole('dialog').waitFor();
     await shot(page, 'side-menu');
+    await page.getByText('더 보기', { exact: true }).click();
     await page.getByRole('button', { name: '좋아요 한 리뷰', exact: false }).click();
     await page.getByRole('heading', { name: '나의 활동 조회' }).waitFor();
     assert.match(await page.locator('.mypage-segment .is-active').innerText(), /좋아요/);
     await page.getByRole('button', { name: '←', exact: true }).click();
     await page.getByRole('button', { name: '메뉴 열기' }).click();
+    await page.getByText('더 보기', { exact: true }).click();
     await page.getByRole('button', { name: '네이버 계정 연결', exact: false }).click();
     await page.getByText('✓ 네이버 계정 성별 확인 완료').waitFor();
     await shot(page, 'connection-complete');
@@ -89,6 +113,7 @@ async function shot(page, name) {
     assert.equal(await page.getByRole('dialog').count(), 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.getByRole('button', { name: '메뉴 열기' }).click();
+    await page.getByText('더 보기', { exact: true }).click();
     await page.getByRole('button', { name: '이용 안내', exact: false }).click();
     await page.getByRole('heading', { name: '지도 색상 읽기' }).waitFor();
     await shot(page, 'service-guide');
@@ -99,6 +124,34 @@ async function shot(page, name) {
     await page.keyboard.press('Escape');
     assert.deepEqual(errors, []);
     await ctx.close();
+
+    const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const touch = await prepare(mobile);
+    await touch.page.goto(base);
+    await touch.page.getByRole('heading', { name: '주변 안전 정보' }).waitFor();
+    await shot(touch.page, 'map-mobile');
+    await touch.page.touchscreen.tap(89, 428);
+    await touch.page.locator('.map-bottom-sheet').getByText('구역 201 안전 정보', { exact: true }).waitFor();
+    await touch.page.waitForTimeout(400);
+    assert.equal(touch.state.zoneReads, 1, 'Touch and synthetic click must not fetch the zone twice');
+    await shot(touch.page, 'zone-mobile');
+    await touch.page.getByRole('button', { name: '메뉴 열기' }).tap();
+    await touch.page.getByRole('dialog').getByRole('button', { name: '길찾기', exact: true }).tap();
+    const planner = touch.page.getByRole('region', { name: '길찾기', exact: true });
+    await planner.waitFor();
+    await planner.getByLabel('출발지 검색').fill('호텔');
+    await planner.getByRole('button', { name: '검색', exact: true }).tap();
+    await planner.getByRole('button', { name: /테스트 호텔/ }).tap();
+    await planner.getByLabel('도착지 검색').fill('카페');
+    await planner.getByRole('button', { name: '검색', exact: true }).tap();
+    await planner.getByRole('button', { name: /테스트 카페/ }).tap();
+    await shot(touch.page, 'route-planner');
+    await planner.getByRole('button', { name: '경로 비교하기' }).tap();
+    await touch.page.getByText('최저 2.70 / 5', { exact: false }).waitFor();
+    assert.equal(touch.state.routeCalls, 4, 'Planner must reuse the existing candidate-route flow');
+    await shot(touch.page, 'route-results');
+    assert.deepEqual(touch.errors, []);
+    await mobile.close();
 
     const pending = await browser.newContext({ viewport: { width: 360, height: 740 } });
     const test = await prepare(pending, { verified: false });
@@ -113,7 +166,7 @@ async function shot(page, name) {
     await shot(test.page, 'connection-pending');
     await test.page.goto(base + '/#naver_code=mock-code&naver_state=' + 's'.repeat(32));
     await test.page.reload(); // Simulate a full-page OAuth redirect, not an in-page hash change.
-    await test.page.getByRole('heading', { name: '어디로 걸어볼까요?' }).waitFor();
+    await test.page.getByRole('heading', { name: '주변 안전 정보' }).waitFor();
     assert.equal(test.state.completes, 1);
     assert.equal(new URL(test.page.url()).hash, '');
     assert.deepEqual(test.errors, []);
@@ -130,6 +183,6 @@ async function shot(page, name) {
     assert.equal(await login.page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.deepEqual(login.errors, []);
     await guest.close();
-    console.log('UI PASS: splash, login/signup, home expansion, nearby zone, drawer links/escape, connection consent, authenticated callback.');
+    console.log('UI PASS: logo splash, login/signup, home drag, desktop menu, mobile native zone tap (one request), route planner search/candidate ranking, connection consent and authenticated callback.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
