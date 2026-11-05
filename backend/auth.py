@@ -86,7 +86,8 @@ def public_user(row):
     verified = bool(row['gender_verified']) and (verification_mode() == 'demo' or row.get('verification_provider') == 'naver')
     return {
         'id': row['id'],
-        'email': row['email'],
+        'email': None if row['email'].endswith('@social.hereji.invalid') else row['email'],
+        'can_write_review': verified,
         'nickname': row['nickname'],
         'profile_image': row.get('profile_image'),
         'role': role,
@@ -111,7 +112,7 @@ def signup_user(email, password, nickname):
                 '''INSERT INTO users (
                        email,password_hash,nickname,status,verification_status,
                        terms_agreed_at,privacy_agreed_at
-                   ) VALUES (%s,%s,%s,'pending_verification','pending',UTC_TIMESTAMP(),UTC_TIMESTAMP())''',
+                   ) VALUES (%s,%s,%s,'active','pending',UTC_TIMESTAMP(),UTC_TIMESTAMP())''',
                 (email.lower().strip(), _hash_password(password), nickname.strip()),
             )
             user_id = cursor.lastrowid
@@ -153,13 +154,19 @@ def require_user(authorization: str | None = Header(default=None)):
             return public_user(row)
 
 
+def optional_user(authorization: str | None = Header(default=None)):
+    if not authorization:
+        return None
+    return require_user(authorization)
+
+
 def require_verified_user(user=Depends(require_user)):
     if not user['gender_verified']:
-        raise HTTPException(403, detail='인증을 완료해 주세요.')
+        raise HTTPException(403, detail='리뷰를 작성하려면 여성으로 등록된 네이버 계정을 연결해 주세요.')
     return user
 
 
-def require_admin(user=Depends(require_verified_user)):
+def require_admin(user=Depends(require_user)):
     if user.get('role') != 'admin':
         raise HTTPException(403, detail='관리자만 접근할 수 있습니다.')
     return user
