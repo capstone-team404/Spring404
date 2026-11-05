@@ -32,6 +32,9 @@ def settings():
 
 
 def init_naver_tables(cursor):
+    cursor.execute('''CREATE TABLE IF NOT EXISTS naver_login_state (
+        state_hash CHAR(64) PRIMARY KEY, verifier_hash CHAR(64) NOT NULL,
+        expires_at DATETIME NOT NULL)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS naver_link_state (
         state_hash CHAR(64) PRIMARY KEY, user_id INT NOT NULL, expires_at DATETIME NOT NULL,
         INDEX idx_naver_state_user (user_id))''')
@@ -71,7 +74,7 @@ def consume_state(state, user_id):
             cursor.execute('DELETE FROM naver_link_state WHERE state_hash=%s', (state_hash,))
 
 
-def fetch_female_profile(code, state):
+def fetch_profile(code, state):
     client_id, client_secret, redirect_uri, _ = settings()
     try:
         response = requests.post('https://nid.naver.com/oauth2.0/token', data={
@@ -91,15 +94,75 @@ def fetch_female_profile(code, state):
     except (requests.RequestException, ValueError, TypeError, AttributeError):
         # Never expose request URLs, client secrets, tokens, or profile data in errors.
         raise HTTPException(502, '네이버에서 정보를 확인하지 못했습니다. 연결을 다시 시작해 주세요.') from None
-    if not profile.get('gender') or profile['gender'] == 'U':
-        raise HTTPException(403, '네이버에서 성별 정보를 제공받지 못했습니다. 계정 정보와 제공 동의를 확인해 주세요.')
-    if profile['gender'] != 'F':
-        raise HTTPException(403, '여성으로 등록된 네이버 계정에서만 성별 확인을 완료할 수 있습니다.')
     identifier = profile.get('id')
     if not isinstance(identifier, str) or not identifier or len(identifier) > 255:
         raise HTTPException(502, '네이버 계정 정보를 확인하지 못했습니다.')
-    # No access/refresh tokens, name, email, or raw profile are persisted.
-    return hashlib.sha256(identifier.encode()).hexdigest()
+    return hashlib.sha256(identifier.encode()).hexdigest(), profile.get('gender') == 'F'
+
+
+def fetch_female_profile(code, state):
+    identifier, female = fetch_profile(code, state)
+    if not female:
+        raise HTTPException(403, '네이버에서 성별 정보를 제공받지 못했습니다. 계정 정보와 제공 동의를 확인해 주세요.')
+    return identifier
+
+
+def begin_login():
+    client_id, _, redirect_uri, _ = settings()
+    state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=10)
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute('DELETE FROM naver_login_state WHERE expires_at<=UTC_TIMESTAMP()')
+            cursor.execute('INSERT INTO naver_login_state (state_hash,verifier_hash,expires_at) VALUES (%s,%s,%s)',
+                           (hashlib.sha256(state.encode()).hexdigest(), hashlib.sha256(verifier.encode()).hexdigest(), expires))
+    return {'authorization_url': 'https://nid.naver.com/oauth2.0/authorize?' + urlencode({
+        'response_type': 'code', 'client_id': client_id, 'redirect_uri': redirect_uri, 'state': state}),
+        'browser_verifier': verifier, 'state': state}
+
+
+def complete_login(code, state, verifier):
+    # A callback copied from a different browser cannot log a visitor into the attacker's account.
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            state_hash = hashlib.sha256(state.encode()).hexdigest()
+            cursor.execute('SELECT verifier_hash,expires_at FROM naver_login_state WHERE state_hash=%s FOR UPDATE', (state_hash,))
+            row = cursor.fetchone()
+            if (not row or row['expires_at'] <= datetime.now(timezone.utc).replace(tzinfo=None)
+                    or not secrets.compare_digest(row['verifier_hash'], hashlib.sha256(verifier.encode()).hexdigest())):
+                raise HTTPException(400, '로그인 요청이 만료되었습니다. 다시 시작해 주세요.')
+            cursor.execute('DELETE FROM naver_login_state WHERE state_hash=%s', (state_hash,))
+    identifier, female = fetch_profile(code, state)
+    from auth import public_user, SESSION_HOURS
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute('SELECT user_id FROM naver_account_link WHERE provider_id_hash=%s FOR UPDATE', (identifier,))
+                linked = cursor.fetchone()
+                if linked:
+                    user_id = linked['user_id']
+                else:
+                    # Internal identifier, never shown as a real email; password login is disabled.
+                    cursor.execute("""INSERT INTO users (email,password_hash,nickname,status,
+                        verification_status,terms_agreed_at,privacy_agreed_at)
+                        VALUES (%s,%s,%s,'active','pending',UTC_TIMESTAMP(),UTC_TIMESTAMP())""",
+                        ('naver_' + identifier + '@social.hereji.invalid', 'social-login-only', '여행자' + secrets.token_hex(5)))
+                    user_id = cursor.lastrowid
+                    cursor.execute('INSERT INTO naver_account_link (provider_id_hash,user_id) VALUES (%s,%s)', (identifier, user_id))
+                cursor.execute("""UPDATE users SET gender_verified=%s,verification_provider='naver',
+                    verification_status=%s,verified_at=UTC_TIMESTAMP(),status='active'
+                    WHERE id=%s AND deleted_at IS NULL""", (female, 'verified' if female else 'pending', user_id))
+                cursor.execute('SELECT * FROM users WHERE id=%s AND deleted_at IS NULL', (user_id,))
+                user = cursor.fetchone()
+                if not user:
+                    raise HTTPException(401, '사용할 수 없는 계정입니다.')
+                token = secrets.token_urlsafe(32)
+                expires = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=SESSION_HOURS)
+                cursor.execute('INSERT INTO auth_session (token_hash,user_id,expires_at) VALUES (%s,%s,%s)',
+                               (hashlib.sha256(token.encode()).hexdigest(), user_id, expires))
+                return {'access_token': token, 'token_type': 'bearer', 'user': public_user(user)}
+    except pymysql.IntegrityError:
+        raise HTTPException(409, '동시에 진행 중인 로그인이 있습니다. 다시 시도해 주세요.') from None
 
 
 def link_account(user_id, provider_id_hash):

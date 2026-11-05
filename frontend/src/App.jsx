@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import SafetyMap from './SafetyMap';
-import { clearToken, getMe, getToken, login, logout, saveToken, signup, completeNaverConnection } from './authApi';
+import { clearToken, getMe, getToken, login, logout, saveToken, signup, completeNaverConnection, startNaverLogin, completeNaverLogin } from './authApi';
 import './auth.css';
 import './home.css';
 import './interface.css';
@@ -25,6 +25,16 @@ function AuthCard({ mode, setMode, onAuthenticated, notice }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const isSignup = mode === 'signup';
+  const [naverConsent, setNaverConsent] = useState(false);
+  const naverLogin = async () => {
+    setBusy(true); setError('');
+    try {
+      const result = await startNaverLogin();
+      if (new URL(result.authorization_url).origin !== 'https://nid.naver.com') throw new Error('로그인 주소를 확인해 주세요.');
+      sessionStorage.setItem('hereji_naver_login', JSON.stringify({ state: result.state, browser_verifier: result.browser_verifier }));
+      window.location.assign(result.authorization_url);
+    } catch (err) { setError(err.message); setBusy(false); }
+  };
 
   const changeMode = () => {
     setError('');
@@ -156,8 +166,16 @@ function AuthCard({ mode, setMode, onAuthenticated, notice }) {
 
         {(error || notice) && <div className="auth-error" role="alert">{error || notice}</div>}
         <button className="auth-primary" disabled={busy}>
-          {busy ? '처리 중…' : isSignup ? '다음: 계정 성별 확인' : '로그인'}
+          {busy ? '처리 중…' : isSignup ? '회원가입' : '로그인'}
         </button>
+        <div className="social-login-section">
+          <details className="connection-privacy"><summary>네이버 가입·로그인 이용 안내</summary>
+            <p>이용약관 및 개인정보 처리방침에 동의하고 네이버 계정으로 가입하거나 로그인합니다. 이용자 식별자와 등록 성별을 사용하며, 여성으로 등록된 계정에서 리뷰를 작성할 수 있습니다. 지도와 길찾기는 연결 없이 이용할 수 있습니다.</p>
+          </details>
+          <label className="connection-consent"><input type="checkbox" checked={naverConsent} onChange={e => setNaverConsent(e.target.checked)} /><span>네이버 가입·로그인 이용 안내에 동의합니다.</span></label>
+          <button type="button" className="naver-connect-button" disabled={busy || !naverConsent} onClick={naverLogin}><img src="/images/naver-login-icon.png" alt="" />네이버로 시작하기</button>
+        </div>
+        <button type="button" className="auth-link" onClick={() => setMode('map')}>로그인 없이 지도 둘러보기</button>
         <button type="button" className="auth-link" onClick={changeMode}>
           {isSignup ? '이미 계정이 있어요' : '처음이신가요? 회원가입'}
         </button>
@@ -196,7 +214,7 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const route = (next) => {
     setUser(next);
-    setMode(next.gender_verified ? 'map' : 'verify');
+    setMode('map');
   };
   const finishVerification = (next) => {
     setUser(next);
@@ -233,6 +251,20 @@ export default function App() {
     const cancelled = naverReturn.has('naver_error');
     if (code || cancelled) window.history.replaceState(null, '', window.location.pathname + window.location.search);
     async function initialize() {
+      const saved = sessionStorage.getItem('hereji_naver_login');
+      if (code && state && saved) {
+        try {
+          const pending = JSON.parse(saved);
+          if (pending.state !== state) throw new Error('로그인을 시작한 화면에서 다시 시도해 주세요.');
+          naverCompletion ||= completeNaverLogin({ code, state, browser_verifier: pending.browser_verifier });
+          const result = await naverCompletion;
+          saveToken(result.access_token);
+          sessionStorage.removeItem('hereji_naver_login');
+          if (active) route(result.user);
+        } catch (err) { if (active) { setNotice(err.message); setMode('login'); } }
+        return;
+      }
+      if (cancelled) sessionStorage.removeItem('hereji_naver_login');
       if (!getToken()) {
         if (active) {
           setMode('login');
@@ -270,5 +302,5 @@ export default function App() {
     return <Verify user={user} onDone={finishVerification} onLogout={handleLogout} notice={notice} />;
   }
   if (mode === 'complete') return <SignupComplete user={user} />;
-  return <>{notice && <div className="app-notice" role="alert">{notice}<button type="button" aria-label="알림 닫기" onClick={() => setNotice('')}>×</button></div>}<SafetyMap user={user} onUserChange={setUser} onLogout={handleLogout} /></>;
+  return <>{notice && <div className="app-notice" role="alert">{notice}<button type="button" aria-label="알림 닫기" onClick={() => setNotice('')}>×</button></div>}<SafetyMap user={user} onUserChange={setUser} onLogout={handleLogout} onRequireLogin={() => setMode('login')} /></>;
 }

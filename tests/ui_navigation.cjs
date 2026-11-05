@@ -49,6 +49,10 @@ async function prepare(context, { session = true, verified = true } = {}) {
     let data;
     if (url.pathname === '/auth/me') data = { user };
     else if (url.pathname === '/auth/login') data = { user, access_token: 'ui-test-token' };
+    else if (url.pathname === '/auth/naver/login/complete') {
+      state.completes++; state.verified = true;
+      data = { user: { ...user, gender_verified: true, verification_provider: 'naver' }, access_token: 'naver-ui-token' };
+    }
     else if (url.pathname === '/auth/verification-config') data = { mode: 'naver', naver_configured: true };
     else if (url.pathname === '/auth/naver/complete') { state.verified = true; state.completes++; data = { message: 'connected' }; }
     else if (url.pathname === '/map/zones') data = zones;
@@ -156,6 +160,10 @@ async function shot(page, name) {
     const pending = await browser.newContext({ viewport: { width: 360, height: 740 } });
     const test = await prepare(pending, { verified: false });
     await test.page.goto(base);
+    await test.page.getByRole('heading', { name: '주변 안전 정보' }).waitFor();
+    await test.page.getByRole('button', { name: '메뉴 열기' }).click();
+    await test.page.getByText('더 보기', { exact: true }).click();
+    await test.page.getByRole('button', { name: '네이버 계정 연결', exact: false }).click();
     const connect = test.page.getByRole('button', { name: '네이버 계정 연결하기' });
     await connect.waitFor();
     assert.equal(await connect.isDisabled(), true);
@@ -177,12 +185,27 @@ async function shot(page, name) {
     await login.page.goto(base);
     await login.page.getByRole('heading', { name: '로그인', exact: true }).waitFor();
     await shot(login.page, 'login');
+    assert.equal(await login.page.getByRole('button', {name: '네이버로 시작하기'}).isDisabled(), true);
+    await login.page.getByRole('button', {name: '로그인 없이 지도 둘러보기'}).click();
+    await login.page.getByRole('heading', {name: '주변 안전 정보'}).waitFor();
+    await login.page.getByRole('button', {name: '메뉴 열기'}).click();
+    await login.page.getByRole('button', {name: '로그인 / 회원가입'}).click();
     await login.page.getByRole('button', { name: '처음이신가요? 회원가입' }).click();
     await login.page.getByRole('heading', { name: '회원가입', exact: true }).waitFor();
     await shot(login.page, 'signup');
     assert.equal(await login.page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.deepEqual(login.errors, []);
     await guest.close();
+
+    const social = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const socialTest = await prepare(social, { session: false, verified: false });
+    await social.addInitScript(() => sessionStorage.setItem('hereji_naver_login', JSON.stringify({ state: 's'.repeat(43), browser_verifier: 'v'.repeat(43) })));
+    await socialTest.page.goto(base + '/#naver_code=mock-code&naver_state=' + 's'.repeat(43));
+    await socialTest.page.getByRole('heading', {name: '주변 안전 정보'}).waitFor();
+    assert.equal(socialTest.state.completes, 1);
+    assert.equal(await socialTest.page.evaluate(() => localStorage.getItem('hereji_access_token')), 'naver-ui-token');
+    assert.deepEqual(socialTest.errors, []);
+    await social.close();
     console.log('UI PASS: logo splash, login/signup, home drag, desktop menu, mobile native zone tap (one request), route planner search/candidate ranking, connection consent and authenticated callback.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

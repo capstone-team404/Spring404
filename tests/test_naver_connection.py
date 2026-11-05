@@ -17,6 +17,48 @@ import auth
 import naver_auth as naver
 
 
+def add_login_schema(conn):
+    conn.executescript('''
+      CREATE TABLE naver_login_state (state_hash TEXT PRIMARY KEY, verifier_hash TEXT, expires_at timestamp);
+      CREATE TABLE auth_session (token_hash TEXT PRIMARY KEY,user_id INTEGER,expires_at timestamp);
+      ALTER TABLE users ADD COLUMN email TEXT;
+      ALTER TABLE users ADD COLUMN password_hash TEXT;
+      ALTER TABLE users ADD COLUMN nickname TEXT;
+      ALTER TABLE users ADD COLUMN terms_agreed_at timestamp;
+      ALTER TABLE users ADD COLUMN privacy_agreed_at timestamp;
+    ''')
+    conn.commit()
+
+
+@pytest.mark.parametrize('female',[True,False])
+def test_public_login_browser_binding_signup_and_repeat(database,config,monkeypatch,female):
+    add_login_schema(database)
+    monkeypatch.setattr(naver,'fetch_profile',lambda *args: ('a'*64,female))
+    started=naver.begin_login()
+    with pytest.raises(HTTPException):
+        naver.complete_login('code',started['state'],'wrong-browser-proof')
+    result=naver.complete_login('code',started['state'],started['browser_verifier'])
+    assert result['user']['gender_verified'] is female
+    assert result['user']['email'] is None
+    assert result['user']['can_write_review'] is female
+    assert result['access_token'] not in str(database.execute('SELECT * FROM auth_session').fetchall())
+    with pytest.raises(HTTPException):
+        naver.complete_login('code',started['state'],started['browser_verifier'])
+    second=naver.begin_login()
+    again=naver.complete_login('code',second['state'],second['browser_verifier'])
+    assert again['user']['id'] == result['user']['id']
+    assert database.execute('SELECT COUNT(*) FROM naver_account_link').fetchone()[0] == 1
+
+
+def test_public_login_expired_state_rejected(database,config):
+    add_login_schema(database)
+    started=naver.begin_login()
+    database.execute("UPDATE naver_login_state SET expires_at='2000-01-01 00:00:00'")
+    database.commit()
+    with pytest.raises(HTTPException):
+        naver.complete_login('code',started['state'],started['browser_verifier'])
+
+
 @pytest.fixture
 def config(monkeypatch):
     for key, value in {
@@ -105,6 +147,7 @@ def database(monkeypatch):
         def execute(self, sql, values=()):
             sql = sql.replace('%s', '?').replace(' FOR UPDATE', '').replace('UTC_TIMESTAMP()', 'CURRENT_TIMESTAMP')
             self.cursor = conn.execute(sql, values)
+            self.lastrowid = self.cursor.lastrowid
         def fetchone(self):
             row = self.cursor.fetchone()
             return dict(row) if row else None

@@ -596,13 +596,14 @@ export function BottomSheet({
                 }}
               >
                 {zoneHasScore(selectedZone) ? `${Number(selectedZone.final_safety_score).toFixed(2)} / 5` : '정보 부족'}
+                {selectedZone.score_is_provisional && zoneHasScore(selectedZone) && <small style={{display: 'block', fontSize: 12, color: '#64748b'}}>초기 참고 점수 · 평가 자료가 적어요</small>}
               </div>
             </div>
 
             <div style={{ ...scoreBoxStyle, textAlign: 'center' }}>
-              <div style={scoreLabelStyle}>공공 안전 점수</div>
+              <div style={scoreLabelStyle}>시설 참고 점수</div>
               <div style={scoreValueStyle}>
-                {Number(selectedZone.public_safety_score || 0).toFixed(2)}
+                {selectedZone.score_policy_version ? (selectedZone.facility_adjusted_score == null ? '정보 부족' : Number(selectedZone.facility_adjusted_score).toFixed(2)) : Number(selectedZone.public_safety_score || 0).toFixed(2)}
               </div>
             </div>
           </div>

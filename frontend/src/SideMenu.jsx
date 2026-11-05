@@ -18,11 +18,11 @@ export default function SideMenu({ user, onClose, onNavigate, onLogout }) {
       if (e.target === dialog.current && (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom)) onClose();
     }}>
     <header><strong id="side-menu-title">여기지</strong><button type="button" className="icon-button" onClick={onClose} aria-label="메뉴 닫기"><Icon name="close" /></button></header>
-    <div className="drawer-profile"><span>{user.nickname.slice(0, 1)}</span><div><strong>{user.nickname}님</strong><small>내 계정</small></div></div>
+    <div className="drawer-profile"><span>{user?.nickname?.slice(0, 1) || '여'}</span><div><strong>{user ? `${user.nickname}님` : '방문자'}</strong><small>내 계정</small></div></div>
     <nav aria-label="전체 메뉴">{items.map(menuButton)}
-      {user.role === 'admin' && menuButton(['admin', 'flag', '관리자 페이지'])}
+      {user?.role === 'admin' && menuButton(['admin', 'flag', '관리자 페이지'])}
     </nav>
     <details className="drawer-more"><summary>더 보기<Icon name="chevron" size={16} /></summary><nav aria-label="추가 메뉴">{more.map(menuButton)}</nav></details>
-    <footer><small>여기지 · 안전 여행 지도</small><button type="button" onClick={onLogout}>로그아웃</button></footer>
+    <footer><small>여기지 · 안전 여행 지도</small><button type="button" onClick={onLogout}>{user ? '로그아웃' : '로그인 / 회원가입'}</button></footer>
   </dialog>;
 }

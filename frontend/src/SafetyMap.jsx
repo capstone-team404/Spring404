@@ -10,7 +10,6 @@ import {
   PLACE_SHEET_HEIGHT,
   ROUTE_SHEET_HEIGHT,
   ZONE_FOCUS_ZOOM,
-  getAiAverage,
   formatMeter,
   formatSecond,
   getVisibleMapCenter,
@@ -37,7 +36,7 @@ const REPORT_REASONS = [
   { label: '기타', description: '직접 신고 사유 입력' },
 ];
 
-function SafetyMap({ user, onUserChange, onLogout }) {
+function SafetyMap({ user, onUserChange, onLogout, onRequireLogin }) {
   const [screen, setScreen] = useState('map');
   const [menuOpen, setMenuOpen] = useState(false);
   const [routePlannerOpen, setRoutePlannerOpen] = useState(false);
@@ -48,6 +47,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
     if (target === 'routes') { openRoutes(); return; }
     if (target === 'map') { setScreen('map'); return; }
     if (target === 'guide' || target === 'admin') { setScreen(target); return; }
+    if (!user) { onRequireLogin(); return; }
     setMyPageTarget({ tab: target === 'liked' ? 'activity' : target === 'profile' ? 'home' : target, activity: target === 'liked' ? 'liked' : 'written' });
     setScreen('mypage');
   };
@@ -192,7 +192,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
       return Number(selectedSafetyScore).toFixed(2);
     }
 
-    return getAiAverage(reviews);
+    return selectedZone?.final_safety_score != null ? Number(selectedZone.final_safety_score).toFixed(2) : '—';
   };
 
   const fetchAllReviews = async (sort = 'latest') => {
@@ -1173,6 +1173,10 @@ function SafetyMap({ user, onUserChange, onLogout }) {
   };
 
   const saveReview = async () => {
+    if (!user) { onRequireLogin(); return; }
+    if (!user.gender_verified) {
+      setMyPageTarget({ tab: 'connection', activity: 'written' }); setScreen('mypage'); return;
+    }
     const zoneId = selectedZone?.zone_id || selectedPlace?.zone_id;
     if (!selectedPlace || !zoneId) return;
 
@@ -1401,7 +1405,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
           onOpenRoutes={openRoutes}
         />
 
-        {menuOpen && <SideMenu user={user} onClose={() => setMenuOpen(false)} onNavigate={openMenuPage} onLogout={onLogout} />}
+        {menuOpen && <SideMenu user={user} onClose={() => setMenuOpen(false)} onNavigate={openMenuPage} onLogout={user ? onLogout : onRequireLogin} />}
 
         {routePlannerOpen && <RoutePlanner initialStart={startPoint} initialEnd={endPoint} onLookup={lookupPlaces}
           onUseLocation={async () => {
@@ -1602,7 +1606,7 @@ function SafetyMap({ user, onUserChange, onLogout }) {
           reportReview={reportReview}
           deleteReview={deleteReview}
           startEditReview={startEditReview}
-          currentUserId={user.id}
+          currentUserId={user?.id}
           currentUser={user}
           onOpenMyPage={() => openMenuPage('profile')}
           onLogout={onLogout}

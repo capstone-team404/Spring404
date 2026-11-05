@@ -42,10 +42,32 @@ def test_admin_actions_and_removed_endpoints(monkeypatch):
 def test_duplicate_report_returns_conflict(monkeypatch):
     def duplicate(*args): raise ValueError('이미 신고한 리뷰입니다.')
     monkeypatch.setattr(main,'report_review',duplicate)
-    main.app.dependency_overrides[main.require_verified_user] = lambda: {'id':1}
+    main.app.dependency_overrides[main.require_user] = lambda: {'id':1}
     try:
         response=TestClient(main.app).post('/reviews/1/report',json={'reason':'기타'})
         assert response.status_code == 409
         assert response.json()['detail'] == '이미 신고한 리뷰입니다.'
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+def test_guest_read_and_review_writing_gate(monkeypatch):
+    client=TestClient(main.app)
+    monkeypatch.setattr(main,'get_reviews',lambda *args: [])
+    monkeypatch.setattr(main,'get_map_zones',lambda: [])
+    monkeypatch.setattr(main,'attach_facility_inventory',lambda zones: zones)
+    def offline(*args, **kwargs): raise main.requests.ConnectionError('mock offline')
+    monkeypatch.setattr(main.requests,'post',offline)
+    assert client.get('/map/zones').status_code == 200
+    assert client.get('/reviews').status_code == 200
+    assert client.post('/routes/safety-rank',json={'routes':[]}).status_code == 200
+    assert client.post('/public-safety-zones',json={'zone_id':1,'public_safety_score':3}).status_code == 401
+    calls=[]
+    monkeypatch.setattr(main,'call_ai',lambda *args: calls.append(args))
+    main.app.dependency_overrides[main.require_user]=lambda: {'id':1,'gender_verified':False,'role':'user'}
+    try:
+        response=client.post('/review',json={'content':'밝은 골목입니다','user_score':5,'lat':37.557,'lng':126.924,'zone_id':1})
+        assert response.status_code == 403
+        assert calls == []
     finally:
         main.app.dependency_overrides.clear()

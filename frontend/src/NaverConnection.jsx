@@ -20,6 +20,7 @@ export default function NaverConnection({ user, onDone }) {
       const { authorization_url: url } = await startNaverConnection();
       const target = new URL(url);
       if (target.origin !== 'https://nid.naver.com') throw new Error('연결 주소를 확인할 수 없습니다.');
+      sessionStorage.removeItem('hereji_naver_login');
       window.location.assign(url);
     } catch (err) { setError(err.message); setBusy(false); }
   };
@@ -31,13 +32,13 @@ export default function NaverConnection({ user, onDone }) {
   };
   return <section className="naver-connection" aria-label="네이버 계정 연결">
     <span className="connection-eyebrow">ACCOUNT CONNECTION</span>
-    <h2>{confirmed ? '네이버 계정 연결 완료' : '네이버로 성별을 확인해요'}</h2>
-    <p>여성 1인 여행자의 경험을 모으기 위해 네이버 계정에 등록된 성별을 확인해요.</p>
+    <h2>{confirmed ? '네이버 계정 연결 완료' : '리뷰 작성 계정 연결'}</h2>
+    <p>여성으로 등록된 네이버 계정을 연결하면 리뷰를 작성할 수 있어요.</p>
     {confirmed ? <div className="connection-success" role="status">✓ 네이버 계정 성별 확인 완료</div> : <>
-      <div className="connection-note">신분증을 통한 본인확인이 아니며, 실제 방문이나 리뷰의 사실 여부를 인증하지 않아요.</div>
       <details className="connection-privacy"><summary>어떤 정보를 사용하나요?</summary>
+        <p>계정에 등록된 정보를 이용하며, 신분증을 이용한 본인확인이나 실제 방문 확인을 의미하지 않습니다.</p>
         <p>네이버 이용자 식별자와 성별을 제공받아요. 여성으로 확인된 경우 계정 연결을 위한 식별자의 해시값, 확인 상태와 시각을 회원 탈퇴 시까지 보관해요. 이름·전화번호는 요청하지 않으며 네이버 접근 토큰은 저장하지 않아요.</p>
-        <p>네이버 연결은 선택할 수 있지만, 성별 확인을 완료하지 않으면 현재 서비스 이용 단계로 진행할 수 없어요. 언제든 로그아웃할 수 있어요.</p>
+        <p>네이버 연결은 선택할 수 있지만, 등록 성별 확인을 완료하지 않으면 리뷰를 작성할 수 없어요. 지도·길찾기와 리뷰 조회는 연결 없이 이용할 수 있어요.</p>
       </details>
       <label className="connection-consent"><input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} />
         <span>계정 연결을 위한 성별·식별자 이용 안내를 확인하고 동의합니다.</span>

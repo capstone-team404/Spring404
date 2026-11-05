@@ -11,6 +11,7 @@ import unittest
 
 SOURCE = Path(__file__).resolve().parents[1] / 'backend' / 'db.py'
 NAMES = {'report_review', 'restore_review_by_admin', 'set_admin_checked',
+         'get_review_evidence', '_refresh_reliability', '_decode_json_list',
          'get_review_score_average', 'get_reviews', 'attach_review_photos',
          'get_admin_reported_reviews'}
 tree = ast.parse(SOURCE.read_text(encoding='utf-8'))
@@ -73,7 +74,7 @@ class ModerationTests(unittest.TestCase):
         self.assertEqual(self.api['get_review_score_average'](1),3)
         self.report(3)
         self.assertEqual(self.row()['moderation_status'],'auto_hidden')
-        self.assertEqual(self.api['get_review_score_average'](1),4)
+        self.assertAlmostEqual(self.api['get_review_score_average'](1),10/3)
         self.assertEqual([r['id'] for r in self.api['get_reviews']()], [2])
         hidden = self.api['get_admin_reported_reviews']()
         self.assertEqual(len(hidden),1)
@@ -101,7 +102,7 @@ class ModerationTests(unittest.TestCase):
         for user in [1,2,3]: self.report(user)
         self.api['set_admin_checked'](1,True)
         self.assertEqual(self.row()['admin_checked'],1)
-        self.assertEqual(self.api['get_review_score_average'](1),4)
+        self.assertAlmostEqual(self.api['get_review_score_average'](1),10/3)
         self.api['set_admin_checked'](1,False)
         self.assertEqual(self.row()['admin_checked'],0)
 
