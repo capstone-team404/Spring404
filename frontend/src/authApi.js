@@ -43,3 +43,6 @@ export async function logout() { try { await request('/auth/logout', {method:'PO
 export const getVerificationConfig = () => request('/auth/verification-config');
 export const startNaverConnection = () => request('/auth/naver/start', json('POST', { consent: true }));
 export const completeNaverConnection = payload => request('/auth/naver/complete', json('POST', payload));
+
+export const startNaverLogin = () => request('/auth/naver/login/start', json('POST', { consent: true }));
+export const completeNaverLogin = payload => request('/auth/naver/login/complete', json('POST', payload));

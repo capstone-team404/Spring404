@@ -116,3 +116,7 @@ class NaverCompleteRequest(BaseModel):
 
 class NaverStartRequest(BaseModel):
     consent: Literal[True]
+
+
+class NaverLoginCompleteRequest(NaverCompleteRequest):
+    browser_verifier: str = Field(min_length=40, max_length=128)

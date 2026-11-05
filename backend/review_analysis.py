@@ -12,7 +12,7 @@ TAG_RULES = (
     {"code": "low_foot_traffic", "label": "유동인구 부족", "polarity": "danger", "delta": -0.5, "keywords": ("사람이 적", "사람 없", "인적이 드물", "한산", "외진")},
     {"code": "intoxicated_people", "label": "취객", "polarity": "danger", "delta": -0.7, "keywords": ("취객", "술취", "술 취", "주정")},
     {"code": "threat_or_violence", "label": "위협·폭행", "polarity": "danger", "delta": -1.0, "keywords": ("폭행", "위협", "범죄", "칼부림", "싸움", "시비")},
-    {"code": "suspicious_person", "label": "스토킹·수상한 사람", "polarity": "danger", "delta": -0.9, "keywords": ("스토킹", "따라오", "수상한 사람", "바바리맨", "불안")},
+    {"code": "suspicious_person", "label": "스토킹·수상한 사람", "polarity": "danger", "delta": -0.9, "keywords": ("스토킹", "따라오", "수상한 사람", "바바리맨")},
     {"code": "poorly_managed", "label": "관리 상태 불량", "polarity": "danger", "delta": -0.4, "keywords": ("더럽", "쓰레기", "관리 안", "방치", "낙서")},
 )
 
@@ -61,7 +61,7 @@ def normalize_tags(tags, text):
         label = str(tag).strip()
         if label in ALLOWED_TAGS and label not in normalized:
             normalized.append(label)
-    for label in extract_tags(text):
+    for label in (extract_tags(text) if tags is None else []):
         if label not in normalized:
             normalized.append(label)
     return normalized[:5]
@@ -103,15 +103,7 @@ def assess_reliability(text, tags, ai_score, user_score=None, source="rule_fallb
         reasons.append("조명·사람·시설 등 구체적인 안전 근거가 부족합니다.")
     if any(keyword in normalize_text(text).lower() for keyword in CONCRETE_KEYWORDS):
         confidence += 0.1
-    if user_score is not None:
-        difference = abs(float(user_score) - float(ai_score))
-        if difference <= 1.5:
-            confidence += 0.1
-        elif difference >= 2.5:
-            confidence -= 0.15
-            reasons.append("사용자 별점과 텍스트 분석 점수의 차이가 큽니다.")
     if source != "openai":
-        confidence -= 0.1
         reasons.append("AI 서버 대신 규칙 기반 분석을 사용했습니다.")
 
     confidence = round(clamp(confidence, 0.1, 0.95), 2)
@@ -125,7 +117,7 @@ def build_analysis(text, user_score=None, ai_payload=None, source="rule_fallback
     payload = ai_payload or {}
     rules_score = rule_score(text)
     supplied_score = payload.get("ai_score")
-    score = rules_score if supplied_score is None else clamp((float(supplied_score) * 0.75) + (rules_score * 0.25))
+    score = rules_score if supplied_score is None else clamp(float(supplied_score))
     score = round(score, 2)
     tags = normalize_tags(payload.get("tags"), text)
     confidence, status, reasons, weight = assess_reliability(text, tags, score, user_score, source)

@@ -33,8 +33,7 @@ DB_CONFIG["connect_timeout"] = 10
 DB_CONFIG["read_timeout"] = 30
 DB_CONFIG["write_timeout"] = 30
 
-REVIEW_WEIGHT = float(os.getenv("REVIEW_WEIGHT", "0.6"))
-PUBLIC_WEIGHT = float(os.getenv("PUBLIC_WEIGHT", "0.4"))
+# Versioned blending and sparse-sample handling live in score_policy.py.
 PUBLIC_SCORE_BOOST = float(os.getenv("PUBLIC_SCORE_BOOST", "2.5"))
 PUBLIC_SCORE_OFFSET = float(os.getenv("PUBLIC_SCORE_OFFSET", "0.35"))
 
@@ -374,7 +373,24 @@ def _attach_analysis(rows):
         row["reliability_reasons"] = _decode_json_list(row.get("reliability_reasons"))
         row["ai_confidence"] = float(row.get("ai_confidence") or 0)
         row["reliability_weight"] = float(row.get("reliability_weight") or 0)
+        _refresh_reliability(row)
     return rows
+
+
+def _refresh_reliability(row):
+    # Re-evaluate stored text with current quality rules, without another paid model call.
+    # Historical scores and summaries remain intact; no production data is rewritten.
+    if row.get('analysis_source') not in {'openai', 'rule_fallback'}:
+        return
+    from review_analysis import assess_reliability, extract_tags
+    tags = _decode_json_list(row.get('ai_tags'))
+    if row['analysis_source'] == 'rule_fallback':
+        tags = extract_tags(row.get('content'))
+    confidence, status, reasons, weight = assess_reliability(
+        row.get('content'), tags, row.get('ai_score') or 0,
+        row.get('user_score'), row['analysis_source'])
+    row.update(ai_confidence=confidence, reliability_status=status,
+               reliability_reasons=reasons, reliability_weight=weight)
 
 
 def save_review(review, analysis, user_id):
@@ -785,20 +801,29 @@ def get_public_safety_zones():
     return rows
 
 
-def get_review_score_average(zone_id):
-    sql = """
-    SELECT
-        SUM(((user_score + ai_score) / 2) * reliability_weight)
-        / NULLIF(SUM(reliability_weight), 0) AS review_safety_score
-    FROM review
-    WHERE zone_id = %s AND deleted_at IS NULL AND moderation_status='normal'
-      AND reliability_status <> 'rejected'
-    """
+def get_review_evidence(zone_id=None):
+    from score_policy import review_evidence
+    sql = """SELECT id, zone_id, user_id, user_score, ai_score, reliability_weight, reliability_status,
+                    content, ai_tags, analysis_source
+             FROM review WHERE deleted_at IS NULL AND moderation_status='normal'
+             AND reliability_status <> 'rejected'"""
+    if zone_id is not None:
+        sql += ' AND zone_id=%s'
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(sql, (zone_id,))
-            row = cursor.fetchone()
-            return row["review_safety_score"] if row else None
+            cursor.execute(sql, (zone_id,) if zone_id is not None else ())
+            rows = cursor.fetchall()
+    groups = {}
+    for row in rows:
+        _refresh_reliability(row)
+        groups.setdefault(row['zone_id'], []).append(row)
+    if zone_id is not None:
+        return review_evidence(groups.get(zone_id, []))
+    return {key: review_evidence(values) for key, values in groups.items()}
+
+
+def get_review_score_average(zone_id):
+    return get_review_evidence(zone_id)['review_safety_score']
 
 
 def score_information_status(review_score, public_zone):
@@ -820,27 +845,8 @@ def calculate_safety_score(zone_id):
             "public_safety_score": 0.0,
         }
 
-    review_score = get_review_score_average(zone_id)
-    public_score = float(public_zone["public_safety_score"])
-
-    if review_score is None:
-        final_score = public_score
-    else:
-        final_score = (float(review_score) * REVIEW_WEIGHT) + (
-            float(public_score) * PUBLIC_WEIGHT
-        )
-
-    return {
-        "zone_id": zone_id,
-        "review_safety_score": review_score,
-        "public_safety_score": public_score,
-        "final_safety_score": round(final_score, 2),
-        "score_status": score_information_status(review_score, public_zone),
-        "cctv_count": public_zone["cctv_count"],
-        "lamp_count": public_zone["lamp_count"],
-        "convenience_count": public_zone["convenience_count"],
-        "police_count": public_zone["police_count"],
-    }
+    from score_policy import combine_score
+    return {**public_zone, **combine_score(public_zone, get_review_evidence(zone_id)), 'zone_id': zone_id}
 
 
 def get_map_zones():
@@ -858,12 +864,9 @@ def get_map_zones():
         COALESCE(psz.convenience_count, 0) AS convenience_count,
         COALESCE(psz.police_count, 0) AS police_count,
         COALESCE(psz.public_safety_score, 0) AS public_safety_score,
-        SUM(((r.user_score + r.ai_score) / 2) * r.reliability_weight)
-          / NULLIF(SUM(r.reliability_weight), 0) AS review_safety_score
+        NULL AS review_safety_score
     FROM safety_zone sz
     LEFT JOIN public_safety_zone psz ON sz.zone_id = psz.zone_id
-    LEFT JOIN review r ON sz.zone_id = r.zone_id
-      AND r.deleted_at IS NULL AND r.moderation_status='normal' AND r.reliability_status <> 'rejected'
     GROUP BY
         sz.zone_id,
         sz.row_index,
@@ -884,17 +887,10 @@ def get_map_zones():
             cursor.execute(sql)
             zones = cursor.fetchall()
 
+    from score_policy import combine_score, review_evidence
+    evidence = get_review_evidence()
     for zone in zones:
-        review_score = zone["review_safety_score"]
-        public_score = normalize_public_safety_score(zone["public_safety_score"])
-        zone["public_safety_score"] = public_score
-        if review_score is None:
-            final_score = public_score
-        else:
-            final_score = (float(review_score) * REVIEW_WEIGHT) + (
-                public_score * PUBLIC_WEIGHT
-            )
-        zone["final_safety_score"] = round(final_score, 2)
-        zone["score_status"] = score_information_status(review_score, zone)
+        zone['public_safety_score'] = normalize_public_safety_score(zone['public_safety_score'])
+        zone.update(combine_score(zone, evidence.get(zone['zone_id'], review_evidence([]))))
 
     return zones

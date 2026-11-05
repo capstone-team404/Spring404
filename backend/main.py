@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from urllib.parse import urlencode
 from naver_auth import begin_connection, consume_state, fetch_female_profile, link_account, settings as naver_settings, verification_mode
-from schemas import NaverCompleteRequest, NaverStartRequest
+from schemas import NaverCompleteRequest, NaverStartRequest, NaverLoginCompleteRequest
+from naver_auth import begin_login, complete_login
+from auth import optional_user
 
 try:
     from dotenv import load_dotenv
@@ -152,6 +154,16 @@ def naver_start(payload: NaverStartRequest, user=Depends(require_user)):
     return {'authorization_url': begin_connection(user['id'])}
 
 
+@app.post('/auth/naver/login/start')
+def naver_login_start(payload: NaverStartRequest):
+    return begin_login()
+
+
+@app.post('/auth/naver/login/complete')
+def naver_login_complete(payload: NaverLoginCompleteRequest):
+    return complete_login(payload.code, payload.state, payload.browser_verifier)
+
+
 @app.get('/auth/naver/callback')
 def naver_callback(code: str = '', state: str = '', error: str | None = None):
     _, _, _, frontend = naver_settings()
@@ -183,22 +195,22 @@ def update_profile(payload: ProfileUpdateRequest, user=Depends(require_user)):
 
 
 @app.get("/me/activity")
-def read_my_activity(user=Depends(require_verified_user)):
+def read_my_activity(user=Depends(require_user)):
     return get_user_activity(user["id"])
 
 
 @app.get("/me/reviews")
-def read_my_reviews(user=Depends(require_verified_user)):
+def read_my_reviews(user=Depends(require_user)):
     return {"reviews": get_user_reviews(user["id"])}
 
 
 @app.get("/me/liked-reviews")
-def read_my_liked_reviews(user=Depends(require_verified_user)):
+def read_my_liked_reviews(user=Depends(require_user)):
     return {"reviews": get_user_liked_reviews(user["id"])}
 
 
 @app.get("/me/reports")
-def read_my_reports(user=Depends(require_verified_user)):
+def read_my_reports(user=Depends(require_user)):
     return get_user_report_history(user["id"])
 
 
@@ -313,7 +325,7 @@ def find_zone_id_for_point(point, zones):
 def rank_routes_locally(routes, zones):
     zone_scores = {
         zone["zone_id"]: float(zone.get("final_safety_score") or 0)
-        for zone in zones
+        for zone in zones if zone.get('score_status') != 'insufficient_data'
     }
     ranked = []
 
@@ -332,7 +344,7 @@ def rank_routes_locally(routes, zones):
         average_score = total_score / len(scores) if scores else 0.0
         min_score = min(scores) if scores else 0.0
         matched_point_count = sum(
-            1 for point in route.get("path", []) if find_zone_id_for_point(point, zones) is not None
+            1 for point in route.get("path", []) if find_zone_id_for_point(point, zones) in zone_scores
         )
         path_length = len(route.get("path", []))
         coverage_ratio = matched_point_count / path_length if path_length else 0.0
@@ -378,7 +390,7 @@ def rank_routes_locally(routes, zones):
 
 
 @app.post("/routes/safety-rank")
-def rank_routes_by_safety(payload: RouteSafetyRequest, _user=Depends(require_verified_user)):
+def rank_routes_by_safety(payload: RouteSafetyRequest):
     try:
         zones = get_map_zones()
         routes = [route.model_dump() for route in payload.routes]
@@ -409,7 +421,7 @@ def rank_routes_by_safety(payload: RouteSafetyRequest, _user=Depends(require_ver
                 "convenience_count": zone.get("convenience_count") or 0,
                 "police_count": zone.get("police_count") or 0,
             }
-            for zone in zones
+            for zone in zones if zone.get('score_status') != 'insufficient_data'
         ],
     }
 
@@ -442,10 +454,10 @@ def rank_routes_by_safety(payload: RouteSafetyRequest, _user=Depends(require_ver
 def read_reviews(
     sort: str = "latest",
     zone_id: int | None = None,
-    _user=Depends(require_verified_user),
+    _user=Depends(optional_user),
 ):
     try:
-        return get_reviews(sort, zone_id, _user["id"])
+        return get_reviews(sort, zone_id, _user['id'] if _user else None)
     except Exception as e:
         logger.exception("Failed to read reviews: %s", e)
         raise HTTPException(status_code=500, detail="Failed to read reviews")
@@ -464,7 +476,7 @@ def edit_review(review_id: int, payload: ReviewUpdate, user=Depends(require_veri
 
 
 @app.delete("/reviews/{review_id}")
-def remove_review(review_id: int, user=Depends(require_verified_user)):
+def remove_review(review_id: int, user=Depends(require_user)):
     try:
         delete_review(review_id, user["id"])
         return {"message": "deleted"}
@@ -473,7 +485,7 @@ def remove_review(review_id: int, user=Depends(require_verified_user)):
 
 
 @app.post("/reviews/{review_id}/like")
-def like(review_id: int, user=Depends(require_verified_user)):
+def like(review_id: int, user=Depends(require_user)):
     try:
         return {"like_count": like_review(review_id, user["id"])}
     except LookupError as e:
@@ -481,7 +493,7 @@ def like(review_id: int, user=Depends(require_verified_user)):
 
 
 @app.post("/reviews/{review_id}/report")
-def report(review_id: int, payload: ReviewReportRequest, user=Depends(require_verified_user)):
+def report(review_id: int, payload: ReviewReportRequest, user=Depends(require_user)):
     try:
         return report_review(review_id, user["id"], payload.reason, payload.detail)
     except ValueError as e:
@@ -499,7 +511,7 @@ def read_zone_by_location(lat: float, lng: float):
 
 
 @app.post("/public-safety-zones")
-def save_public_safety_zone(zone: PublicSafetyZoneCreate):
+def save_public_safety_zone(zone: PublicSafetyZoneCreate, _admin=Depends(require_admin)):
     try:
         upsert_public_safety_zone(zone)
     except Exception as e:
