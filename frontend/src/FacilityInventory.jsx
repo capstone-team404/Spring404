@@ -31,7 +31,7 @@ export default function FacilityInventory({ inventory }) {
       가까운 경찰시설: {inventory.nearest_police_name} · 직선거리 약 {Math.round(inventory.nearest_police_distance_m)}m
     </p>}
     <p style={{ color: '#6b7280', lineHeight: 1.5 }}>
-      공개된 시설 목록 기준입니다. 새 시설 안전점수는 기준 확정 후 반영됩니다.
+      공개된 시설 목록 기준입니다. {inventory.score_status === 'integrated_reference' ? '정확한 위치가 확인된 시설 자료를 참고 점수에 반영합니다. 주소 기반 추정 위치는 점수에서 제외합니다.' : '새 시설 안전점수는 기준 확정 후 반영됩니다.'}
       {inventory.boundary_zone && ' 이 구역은 수집 반경 안의 시설만 집계했습니다.'}
     </p>
     <details>
