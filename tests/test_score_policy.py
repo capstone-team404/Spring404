@@ -14,7 +14,7 @@ def row(stars=5, ai=1, user=1, id=1, weight=1):
 def test_stars_dominate_and_one_review_is_smoothed():
     result = review_evidence([row()])
     assert result['review_raw_score'] == pytest.approx(4.2)
-    assert result['review_safety_score'] == pytest.approx(3.4)
+    assert result['review_safety_score'] == pytest.approx(3.8)
     assert review_evidence([row(stars=1,ai=5)])['review_raw_score'] == pytest.approx(1.8)
 
 

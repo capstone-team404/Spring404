@@ -64,6 +64,7 @@ export const getSafetyColor = (score, hasData = true) => {
   return '#dc2626';
 };
 export const getZoneSafetyLabel = (zone) => !zoneHasScore(zone) ? '정보 부족' :
+  zone.score_basis === 'facilities' ? (Number(zone.final_safety_score) >= SAFETY_HIGH_THRESHOLD ? '시설 지표 높음' : Number(zone.final_safety_score) >= SAFETY_MID_THRESHOLD ? '시설 지표 보통' : '시설 지표 낮음') :
   Number(zone.final_safety_score) >= SAFETY_HIGH_THRESHOLD ? '높은 평가' :
   Number(zone.final_safety_score) >= SAFETY_MID_THRESHOLD ? '보통 평가' : '낮은 평가';
 

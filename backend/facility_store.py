@@ -145,6 +145,8 @@ def build_inventory(area, zones, states, items):
 
 
 def attach_facility_inventory(zones):
+    if all('facility_inventory' in zone for zone in zones):
+        return zones
     inventory = FacilityStore().inventory()
     indexed = {row["zone_id"]:row for row in inventory["zones"]}
     for zone in zones:
