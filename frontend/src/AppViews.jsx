@@ -155,6 +155,8 @@ export function MapView({
     zonePolygonsRef.current = [];
 
     mapZones.forEach((zone) => {
+      // Outside the supported 1km area, show the ordinary map rather than gray tiles.
+      if (zone.in_collection_area === false && zone.review_safety_score == null) return;
       const score = Number(zone.final_safety_score || 0);
       const isSelected = Number(selectedZone?.zone_id) === Number(zone.zone_id);
       const fillColor = getSafetyColor(score, zoneHasScore(zone));

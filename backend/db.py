@@ -834,19 +834,8 @@ def score_information_status(review_score, public_zone):
 
 
 def calculate_safety_score(zone_id):
-    public_zone = get_public_safety_zone(zone_id)
-    if public_zone is None:
-        public_zone = {
-            "zone_id": zone_id,
-            "cctv_count": 0,
-            "lamp_count": 0,
-            "convenience_count": 0,
-            "police_count": 0,
-            "public_safety_score": 0.0,
-        }
-
-    from score_policy import combine_score
-    return {**public_zone, **combine_score(public_zone, get_review_evidence(zone_id)), 'zone_id': zone_id}
+    # Use the same snapshot/policy as map coloring and route ranking.
+    return next((zone for zone in get_map_zones() if zone['zone_id'] == zone_id), None)
 
 
 def get_map_zones():
@@ -888,9 +877,25 @@ def get_map_zones():
             zones = cursor.fetchall()
 
     from score_policy import combine_score, review_evidence
+    from facility_store import FacilityStore
+    from facility_scoring import score_facilities
+    inventory = FacilityStore().inventory()
+    indexed = {item['zone_id']: item for item in inventory['zones']}
     evidence = get_review_evidence()
     for zone in zones:
-        zone['public_safety_score'] = normalize_public_safety_score(zone['public_safety_score'])
+        collected = indexed.get(zone['zone_id'], {})
+        facility, components = score_facilities(collected, inventory['sources'])
+        zone['legacy_public_safety_score'] = normalize_public_safety_score(zone['public_safety_score'])
+        zone['public_safety_score'] = facility if facility is not None else 0
+        zone['facility_score_available'] = facility is not None
+        # Legacy counts are retained separately; current inputs use this collected snapshot.
+        for key in ('cctv_count','lamp_count','convenience_count','police_count'):
+            zone['legacy_' + key] = zone[key]
+            zone[key] = collected.get(key) if facility is not None else None
+        zone['facility_score_components'] = components
+        zone['in_collection_area'] = collected.get('in_collection_area', False)
+        zone['facility_inventory'] = {**collected, 'sources':inventory['sources'],
+            'score_status':'integrated_reference' if facility is not None else 'insufficient_data'}
         zone.update(combine_score(zone, evidence.get(zone['zone_id'], review_evidence([]))))
 
     return zones

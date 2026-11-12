@@ -3,7 +3,7 @@ from collections import defaultdict
 
 USER_STAR_WEIGHT = 0.8
 PRIOR_SCORE = 3.0
-PRIOR_WEIGHT = 2.0
+PRIOR_WEIGHT = 0.5
 
 
 def review_evidence(rows):
@@ -32,11 +32,11 @@ def combine_score(public_zone, evidence):
     public = float(public_zone.get('public_safety_score') or 0)
     counts = sum(max(0, int(public_zone.get(k) or 0)) for k in
                  ('cctv_count', 'lamp_count', 'convenience_count', 'police_count'))
-    has_public = public > 0 or counts > 0
+    has_public = public_zone.get('facility_score_available', False) or public > 0 or counts > 0
     review = evidence['review_safety_score']
     # Few observed facilities do not establish that a street is dangerous.
     # Pull this provisional facility index toward a neutral prior, not toward zero.
-    facility = (public * counts + PRIOR_SCORE * 3) / (counts + 3) if has_public else None
+    facility = public if has_public else None
     if review is not None and facility is not None:
         final = review * .7 + facility * .3
     else:
@@ -48,4 +48,4 @@ def combine_score(public_zone, evidence):
             'score_basis': 'reviews_and_facilities' if review is not None and has_public else
                            'reviews' if review is not None else 'facilities' if has_public else 'none',
             'score_is_provisional': evidence['review_author_count'] < 3,
-            'score_policy_version': 'experience-v2'}
+            'score_policy_version': 'facility-integrated-v1'}
